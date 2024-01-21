@@ -13,8 +13,10 @@ library(pbmcapply)
 library(Matrix)
 library(magrittr)
 library(cowplot)
+library(matrixStats)
 
 parser <- arg_parser("Calculate and segment per sample zscore")
+parser <- add_argument(parser, "--chrom", help="chromosome to call outliers")
 parser <- add_argument(parser, "--sample", help="sample to parse and detect outliers in")
 parser <- add_argument(parser, "--population_beta", help="population mean beta file")
 parser <- add_argument(parser, "--beta_mat", help="input sample beta matrix")
@@ -28,8 +30,6 @@ argv <- parse_args(parser)
 
 segment_chrom <- function(meth.sample, this_chrom, zscore_threshold=2, segment_alpha=.01, min_seg_size = 20, median_seg_z = 1) {
   # segment zscore profile
-  meth.sample <- meth.sample[meth.sample$chrom == this_chrom,]
-  
   index <- c(1,which(diff(meth.sample$start) > 10000))
   last_start <- index[length(index)]
   last_end <- nrow(meth.sample)
@@ -48,7 +48,7 @@ segment_chrom <- function(meth.sample, this_chrom, zscore_threshold=2, segment_a
   return(cand.segs)
 }
 
-segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, zscore_threshold=2, segment_alpha=.01, min_seg_size = 20, median_seg_z = 1) {
+segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this_chrom, zscore_threshold=2, segment_alpha=.01, min_seg_size = 20, median_seg_z = 1) {
   betas.sample <- betas %>% select("chromosome","start",all_of(this_sample))
   colnames(betas.sample) <- c("chrom","start","sample_beta")
   
@@ -56,9 +56,13 @@ segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, zsco
   colnames(depth.sample) <- c("chrom", "start", "sample_depth")
   
   meth.sample <- pop_mean %>% left_join(betas.sample) %>% left_join(depth.sample) %>% mutate(cpg_num = 1:n())
+  meth.sample$sample_depth %<>% pmin(20) #cap depth at 20x coverage
+
   #beta correction on sample
   meth.sample$sample_beta <- (meth.sample$sample_beta*meth.sample$sample_depth+1)/(meth.sample$sample_depth+2)
-  meth.sample$sample_depth %<>% pmin(30) #cap depth at 30bp 
+  #beta correction on population mean
+  N <- ncol(betas) - 3
+  meth.sample$mean_beta <- (meth.sample$mean_beta*meth.sample$total_depth + N) / (meth.sample$total_depth + 2*N)
   
   # calculate zscore
   meth.sample %<>% mutate(zscore = qnorm(pbeta(q=sample_beta, mean_beta*sample_depth, (1-mean_beta)*sample_depth)))
@@ -68,12 +72,12 @@ segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, zsco
   meth.sample <- meth.sample[!is.na(meth.sample$sample_beta),]
     
   # segment zscore profile
-  valid_chrom = paste0("chr", seq(1,22))
-  cand.segs <- Reduce(rbind,pbmclapply(valid_chrom, function(x) {  
-    segs <- segment_chrom(meth.sample, x, zscore_threshold, segment_alpha, min_seg_size, median_seg_z)
-    if (nrow(segs) == 0) {return(NULL)}
-    return(segs %>% mutate(ID=this_sample, seg_id=paste0(x,"_",this_sample,"_",1:nrow(segs))))
-      }))
+  cand.segs <- segment_chrom(meth.sample, this_chrom, zscore_threshold, segment_alpha, min_seg_size, median_seg_z)
+  if (nrow(cand.segs)==0) { 
+    cand.segs <- NULL
+  } else {
+    cand.segs %<>% mutate(ID=this_sample, seg_id=paste0(this_chrom,"_",this_sample,"_",1:nrow(cand.segs)))
+  }
   return(list("meth.sample"=meth.sample,"cand.segs"=cand.segs))
 }
 
@@ -83,7 +87,7 @@ call_outliers <-function(cand.segs, betas, depth, sample_id, covariates=NULL) {
   
   betas.mat <-  as.matrix(betas[,4:ncol(betas)])
   depth.mat <- as.matrix(depth[,4:ncol(depth)])
-  depth.mat[depth.mat > 30] <- 30  
+  depth.mat[depth.mat > 20] <- 20
   
   ol <- findOverlaps(cands.gr, betas.gr)
   # create Segment x CpG identity matrix to indicate which cpgs belong to which segment
@@ -92,15 +96,22 @@ call_outliers <-function(cand.segs, betas, depth, sample_id, covariates=NULL) {
   betas.mat[is.na(betas.mat)] <- 0
   depth.mat[is.na(depth.mat)] <- 0
   # aggregate betas across each segment
-  region_beta <- as.matrix(((CpG_Identity %*% (betas.mat*depth.mat))+1) / ((CpG_Identity %*% depth.mat)+2))
+  region_beta <- matrix(((CpG_Identity %*% (betas.mat*depth.mat))+1) / ((CpG_Identity %*% depth.mat)+2), nrow=nrow(cand.segs), ncol=ncol(betas.mat))
+  colnames(region_beta) <- colnames(betas.mat)
+  cand.segs$delta <- abs(region_beta[,sample_id] - rowMedians(region_beta, na.rm=T))
   M <- logit(region_beta)
   M.scaled <- t(scale(t(M),center=T,scale=T))
-  rownames(M.scaled) <- cand.segs$seg_id
   #M.corrected <- removeBatchEffect(M.scaled, covariates=covariates)
   #zscores <- t(scale(t(M.corrected)))
   cand.segs$zscore <- M.scaled[,sample_id]
+
   M.scaled <- M.scaled[abs(cand.segs$zscore) > 2.5,]
   cand.segs <- cand.segs[abs(cand.segs$zscore) > 2.5,]
+  if (nrow(cand.segs)==0) { return(list("outlier.segs"=NULL, "z.mat"=NULL)) }
+
+  M.scaled <- matrix(M.scaled, nrow=nrow(cand.segs), ncol=ncol(betas.mat))
+  colnames(M.scaled) <- colnames(betas.mat)
+  rownames(M.scaled) <- cand.segs$seg_id
   return(list("outlier.segs"=cand.segs,"z.mat"=M.scaled))
 }
 
@@ -145,7 +156,7 @@ plot_outliers <- function(samp, cand.segs, meth.sample, z.mat, plot_dir) {
      z.df <- data.frame(zscore=as.numeric(z.mat[this_seg,]),
                        sample_id=colnames(z.mat),
                        outlier=(colnames(z.mat)==samp))
-     hist <- ggplot(z.df, aes(zscore, fill=outlier)) + geom_histogram() +  theme_classic() +
+     hist <- ggplot(z.df, aes(zscore, fill=outlier)) + geom_histogram(bins=50) +  theme_classic() +
          geom_vline(xintercept=seg$zscore, color="red", linetype="dashed") +
          scale_fill_manual(values=c("grey40", "firebrick")) +
          theme(legend.position="none")
@@ -158,12 +169,12 @@ plot_outliers <- function(samp, cand.segs, meth.sample, z.mat, plot_dir) {
 main <- function(argv) {
     # Read in data
     cat("Reading in data . . . \n")
+    this_chrom <- argv$chrom
     this_sample <- argv$sample
     pop_mean <- fread(argv$population_beta) 
     betas <- fread(argv$beta_mat)
     depths <- fread(argv$depth_mat)
     global_pcs <- read.table(argv$global_meth_pcs)
-
     # REMOVE GLOBAL OUTLIERS + RECOMPUTE POP MEAN
     #cols=colnames(betas)[colnames(betas) %in% c("chromosome", "start", "end", rownames(global_pcs))]
     #betas <- betas[,..cols]
@@ -178,21 +189,21 @@ main <- function(argv) {
 
     cat("Calculating population difference zscore and segment to find candidate outlier region . . .\n")
     # calculate pop difference zscore and segment to find candidate outlier regions
-    cand.outliers <- segment_candidate_outliers(pop_mean, betas, depths,this_sample=this_sample)
-    meth.sample = cand.outliers[["meth.sample"]]
+    cand.outliers <- segment_candidate_outliers(pop_mean, betas, depths,this_sample=this_sample, this_chrom=this_chrom)
+    meth.sample <- cand.outliers[["meth.sample"]]
     cand.segs <- cand.outliers[["cand.segs"]]
-    if(nrow(cand.segs) == 0) {
+    if(is.null(nrow(cand.segs))) {
         write.table(NULL, file=argv$outlier_bed, row.names=F, col.names=T, quote=F)
         write.table(NULL, file=argv$outlier_z_mat,row.names=T,col.names=T, quote=F)
         return()
     }
 
     # calculate region aggregated M values and call zscores across samples
-    cat("Calculating regin aggregated M values and zscores . . . \n")
+    cat("Calculating region aggregated M values and zscores . . . \n")
     outliers <- call_outliers(cand.segs, betas, depths,sample_id=this_sample)
     outlier.segs <- outliers[["outlier.segs"]]
     outlier_z_matrix <- outliers[["z.mat"]]
-    if(nrow(outlier.segs) == 0) {
+    if(is.null(nrow(outlier.segs))) {
         write.table(NULL, file=argv$outlier_bed, row.names=F, col.names=T, quote=F)
         write.table(NULL, file=argv$outlier_z_mat,row.names=T,col.names=T, quote=F)
         return()
