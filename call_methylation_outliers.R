@@ -98,7 +98,7 @@ call_outliers <-function(cand.segs, betas, depth, sample_id, covariates=NULL) {
   # aggregate betas across each segment
   region_beta <- matrix(((CpG_Identity %*% (betas.mat*depth.mat))+1) / ((CpG_Identity %*% depth.mat)+2), nrow=nrow(cand.segs), ncol=ncol(betas.mat))
   colnames(region_beta) <- colnames(betas.mat)
-  cand.segs$delta <- abs(region_beta[,sample_id] - rowMedians(region_beta, na.rm=T))
+  cand.segs$delta <- region_beta[,sample_id] - rowMedians(region_beta, na.rm=T)
   M <- logit(region_beta)
   M.scaled <- t(scale(t(M),center=T,scale=T))
   #M.corrected <- removeBatchEffect(M.scaled, covariates=covariates)
