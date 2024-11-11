@@ -61,7 +61,7 @@ segment_popbeta <- function(betas, depth, pop_mean, this_chrom) {
   betas.mat <-  as.matrix(betas[,4:ncol(betas)])
   depth.mat <- as.matrix(depth[,4:ncol(depth)])
   # cap depth at 30 so all samples have similar influence on mean (higher coverage samples will not influence more)
-  depth.mat[depth.mat > 30] <- 30  
+  depth.mat[depth.mat > 20] <- 20
   
   #pop_mean = rowSums(betas.mat*depth.mat, na.rm=T) / rowSums(depth.mat, na.rm=T)
   meth_segs <- segment_blocks(pop_mean, this_chrom)

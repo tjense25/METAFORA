@@ -9,7 +9,7 @@ sample_table = pd.read_table("./PBMC_ADRC_sample_table.txt")
 samples = sample_table['Sample_name'].to_list()
 tissues = sample_table['Tissue'].to_list()
 
-valid_chroms=["chr%d" % i for i in range(1,23)]
+valid_chroms=["chr%d" % i for i in range(1,23)] + ["chrX", "chrY", "chrM"]
 tissue_dict= defaultdict(list)
 for sample,tiss in zip(samples,tissues):
   tissue_dict[tiss].append(sample)
@@ -48,6 +48,51 @@ rule nanopolish_cpg_betas:
        bgzip -c {params.tmp_betas} > {output.bed}
        tabix -p bed -S 1 {output.bed}
        rm -rf {params.tmp_dir}
+    """
+
+rule modBam2Bed:
+    threads: 4
+    resources:
+        mem=32,
+        time=12
+    input:
+        bam = join(outdir, "{sample}/{sample}.GRCh38.methylated.sorted.bam"),
+        bai = join(outdir, "{sample}/{sample}.GRCh38.methylated.sorted.bam.bai"),
+        ref = lambda w: config["reference_params"]["GRCh38"]["fasta"]
+    params:
+        tmp_dir = join(scratch, "{sample}_GRCh38_methylation"),
+        tmp_bam = join(scratch, "{sample}_GRCh38_methylation/primary_alignment.bam"),
+        tmp_bed = join(scratch, "{sample}_GRCh38_methylation/out.bed") 
+    output:
+        meth_bed = join(outdir, "{sample}/methylation/{sample}.GRCh38.cpg_methylation.bed.gz"),
+        tbi = join(outdir, "{sample}/methylation/{sample}.GRCh38.cpg_methylation.bed.gz.tbi")
+    conda: '/oak/stanford/groups/smontgom/tannerj/RUSH_AD/envs/methylation.yaml'
+    shell: """
+        # in process of updating scripts
+        mkdir -p {params.tmp_dir}
+        #ml samtools #TODO: add to conda yaml in future
+        #samtools view -b -F 256 {input.bam} > {params.tmp_bam} #filter out non-primary alignments
+        #samtools index {params.tmp_bam}
+        modbam2bed -t {threads} --cpg --combine -m 5mC -d 40 {input.ref} {input.bam} > {params.tmp_bed}
+        bgzip -c {params.tmp_bed} > {output.meth_bed}
+        tabix {output.meth_bed}
+        rm -rf {params.tmp_dir}
+    """
+
+rule format_modBam2Bed:
+    threads: 16
+    resources:
+      time=4,
+      mem=128
+    input:
+      join(outdir, "{sample}/methylation/{sample}.GRCh38.cpg_methylation.bed.gz")
+    params:
+      script = "format_modBam2Bed.R"
+    output:
+      meth_bed = join(outdir, "{sample}/methylation/{sample}.GRCh38.METAFORA_formatted.cpg_methylation.bed")
+    conda: 'r'
+    shell: """
+      Rscript {params.script} --input {input} --output {output}
     """
 
 rule create_tissue_sample_reference:

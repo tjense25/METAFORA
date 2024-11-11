@@ -1,3 +1,4 @@
+library(argparser)
 library(data.table)
 
 parser <- arg_parser("Format modBam2Bed bed files so they are consistent with METAFORA formatting")
