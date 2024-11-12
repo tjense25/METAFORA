@@ -18,4 +18,4 @@ meth$beta <- meth$beta / 100
 meth$depth <- round(meth$score * meth$depth) #correct depth for no_call and other filtered reads
 
 meth <- meth[, .(depth=sum(depth), beta = sum(depth*beta)/sum(depth)), by=c("chromosome", "start", "end")]
-fwrite(meth, file=argv$output, sep="\t")
+fwrite(meth, file=argv$output, sep="\t", scipen=999)
