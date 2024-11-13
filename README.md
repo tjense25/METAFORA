@@ -15,13 +15,29 @@ To call outliers, Metafora uses a four step approach detailed below:
 3. After generating individual CpG population deviance scores, the whole deviance score profile is segmented to find contiguous blocks of CpG that are all consistently deviant. Methylation deviance scores are summarized over these regions. This segmentation gives us candidate outlier regions, blocks of CpGs where a sample deviates significanlty from the population mean.
 4. Finally, once we have these candidate outlier regions, methylation proportions are summarized over the region across all samples. These methylation betas are then converted to M-values and then corrected by regression out the effect of known and hidden covariates. Corrected M-values are then scaled and centered to generate methylation z-scores, which can then be thresholded to determine the methylation outliers that exist at the tails of these methylation distributions.
 
+### Automated Global Outlier Detection
+
+Finding meaningful methylation outlier regions assumes these methylation outliers are rare in any given genome and that outside these regions, global methylation profiles are highly concordant. We usually think of methylation outliers being driven in *cis* by nearby rare genetic variants. If a sample's global methylation profile doesnt match the population mean across a substantial portion of the genome--due to technical factors, mismatching tissue, extreme deviance in expected cell-type proprotions, etc.--calling individual methylation outlier regions is not as useful. Further, including these global outliers could bias the results of other samples within the cohort by skewing our estimates of mean methylation. To this end, one important step of Metafora is to identify and exclude global methylation outliers, samples who have global--potentially *trans*-acting--differences in their methylation profiles. 
+
+This process is automated in Metafora by calculating pair-wise correlations of sample methylation profiles. As a stable epigenetic mark, we have found methylation to be highly conserved and correlated across samples. We find on average any two samples should be have pearson correlation values near ~0.96 even when sequenced from different sequencing modalities, though this might vary based on tissue heterogeneity and other factors. To identify global outliers, Metafora calcualtes a correlation matrix across methylation profiles of all samples, and summarizes each sample by its mean correlation with all other samples. This mean should be centered near 1 for most concordant samples, while global outliers will have much lower outlying values. To call global outliers then, we simply take the distribution of this mean correlation and use tukey's method to call individuals with outlying low levels. These samples will be removed from hidden factors calaculation and methylation outlier regions will not be called for them. 
+
+As an example here is a Metafora run of a cohort of 43 PBMC samples, into which 3 "global outliers" were spiked in from different tissues and incorrectly labeled as PBMC: 2 from Cerebellum tissue, and 1 from a cultured fibroblast sample. As methylation should be tissue-specific methylation profiles from different tissues should display global methylation deviation and these samples should be less correlated. Metafora's pairwise corrleation analysis detects all three of these samples as global outliers and will exclude them from the analysis. 
+
+<img width="1056" alt="image" src="https://github.com/user-attachments/assets/ec5265df-0853-47b6-aff1-6b86aea62315">
+
+In addition to mismatching tissues, this automated outlier process can also detect samples which have low sequencing or DNA quality, or have global dysregulation of methylation due to mutations in chromatin or methylation regulation genes. Further analysis to understand why a sample is a global outlier by a user is warranted! 
+
+Automated outlier detection can be skipped to force methylation outlier calling on all samples (though not recommended as some global outlier samples can have 10k+ outliers which makes interpretation nearly impossible, and will significantly slow down runtimes). Also it is possible to skip the automated detection and simply provide a list of outlier samples to exclude based on manual inspection of the data (or these samples can simply be removed from the input table). 
+
+### Calling Methylation Outliers on Sex Chromosomes
+
 ## Running Metafora
 
-Metafora is written as a snakemake workflow wrapper around a series of R scripts. To run, a user updates a config file to specify an input table of samples / methylation filepaths, runtime parameters, and optional covariates file. Then the workflow can be run using the following snakemake command
+Metafora is written as a snakemake workflow wrapper around a series of R scripts. To run, a user updates a config file to specify an input table of samples / methylation filepaths, reference genome, runtime parameters, and optional covariates file. Then the workflow can be run using the following snakemake command
 ```
 snakemake -pr --snakefile Metafora.snakefile --configfile config.yml --use-conda --profile <cluster_profile> --jobs 100
 ```
-Metafora was designed to be ran parrallelized across many jobs on slurm controller or other HPC job scheduler. This can be configured in snakemake by setting up a cluster profile. 
+Metafora was designed to be ran parrallelized across many jobs on a slurm controller or other HPC job scheduler. This can be configured in snakemake by setting up a cluster profile. 
 
 
 
@@ -73,8 +89,6 @@ To explicitly correct for covariates, one simply needs to specify a matrix of co
 
 Sex need not be explicitly included in the covariates matrix, as Metafora automatically estimate sex chromosome copy number by measuring depth across sex chromosomes and then controls this estimated sex during outlier calling.
 
-
-
 ### Output
 Metafora generates two final output files per sample to represent the methylation outlier in the sample. These output files can be found in sample-level directories generated in the `output_dir` specified in the config file. 
 
@@ -101,9 +115,8 @@ chr20 31546859 31548400 49 * UW1474564 49 5.74149646908452 1727 1775 chr20_UW147
 `{Sample_name}.GRCh38.tissue_{Tissue}.METAFORA.outlier_regions.zscore.mat`: is a matrix containing z-scores for all samples across each outlier region. Columns represent samples while row represent outlier regions that can be cross-linked to the outlier_regions.bed file. Each cell represents methylation z-score for that samples in that methylation region.
 
 In addition to these summary files, we also plot a pdf image of each methylation outlier in the `outlier_plots` directory. These figures show 1. the population mean methylation with confidence intervals showing standard error of that estimate, as well as the observed sample-level methlyation. 2. the population deviance score across the same region with red line highlighting the segmented candidate outlier region. 3. the population methylation z-score distribution after correction and normalization with the outlier sample highlighted in red. An example plot for an outlier is included below: 
-<img width="404" alt="image" src="https://github.com/user-attachments/assets/1dcf5e79-fbeb-4d3e-9721-9d95572c5763">
 
-
+<img width="381" alt="image" src="https://github.com/user-attachments/assets/383de49a-5755-49d2-af5b-2af2585de0f0">
 
 ### Dependencies
 To run Metafora, one must install snakemake and (ideally) mamba through conda. Conda environments for each step are then specified for each snakemake rule and will be automatically installed and activated when running snakemake with the `--use-conda` parameter. 
