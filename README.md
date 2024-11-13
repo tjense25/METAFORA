@@ -3,7 +3,7 @@
 # METAFORA
 **Metafora** (**Met**hylation **a**nalysis **f**or **o**utlier **r**egion **a**nnotation) is a workflow to call methylation outlier regions--segments of the genome where methylation levels in an individual deviate significantly from the normal levels seen in the general population--from long-read whole genome sequencing data. Metafora has been tested for both PacBio and ONT methylation calls and can further correct for technology-specific biases to allow joint analysis of across different sequencing modalities.
 
-Benefits of Metafora include its ability to correct for technical covariates and hidden factors when detecting methylation outliers, an unbiased segmentation approach that learns methylation outlier regions from the data rather than relying on annotations of CpG islands or promoters, and broad applicability across many sequencing modalities and tools.
+Benefits of Metafora include its ability to model uncertainty of methylation proportions from variable seuqence depths, its ability to correct for technical covariates and hidden factors when detecting methylation outliers. It also uses an unbiased segmentation approach that learns methylation outlier regions from the data rather than relying on annotations of CpG islands or promoters and has broad applicability across many sequencing modalities and tools.
 
 
 ## Methods
@@ -34,6 +34,13 @@ In future releases of Metafora, automated outlier detection will be able to be s
 To call methylation outliers on the sex chromosomes, we take a sex-stratified approach to bypass the complexities of dealing with varying sex chromosome copynumbers and X-chromosome inactivation. So, X-chromosome outliers are called separately in XX and in XY individuals, and Y-chromosome outliers will only be called in XY individuals. Sex chromosome copy number is automatically estimated based on depth found on both chromosome X and chromosome Y. If a sample does not cluster well with either XX or XY individuals, because they, for instance, have a rare sex chromosome combination (X, XXX, XYY, etc.), they will be flagged and excluded from analyses.
 
 <img width="937" alt="image" src="https://github.com/user-attachments/assets/db392990-fbef-4d61-8c5c-e6eeab1f0167">
+
+## How large a sample size is needed to run Metafora?
+As with all outlier analyses, the larger the reference population, the more power you have to detect robust outliers. We recommend at least **30 samples** per tissue to start using Metafora to call outliers, though the more samples the better. Sample size could be increased by using publically available sequencing data of a matched tissue (and adjusting for sequencing modality as a `Batch` covariate if public data are coming from a different sequencing type). 
+
+By decreasing the default MAX_ABS_ZSCORE threshold, it could be possible to detect outliers with less samples but these outliers will be less reliable, and one might also find more false positives. 
+
+For sex-stratified outliers on the X and Y chromosome, it is recommended to have at least 20-30 samples per sex as well. 
 
 ## Running Metafora
 
@@ -84,9 +91,9 @@ chr1    10562   10562   70      0.899971428571429
 ### Specifying Additional Covariates to Correct (Optional)
 By default, Metafora controls for technical covariates, biological factors and batch effects that could confound outlier analysis. It acheives this by computing hidden factors using PCA of the methylation proprotion matrix. Hidden factors will capture the largest sources of variability between samples, usually coming from technical factors such as sequencing modality, sequencing depth, library quality, etc. Because the PCs are capturing this source of variation, we do not believe it is necesarry to explicity correct for them in the model, though we give users the options to explicity provide a matrix of covariates to correct for and regress out for methylation z-score estimation. 
 
-To explicitly correct for covariates, one simply needs to specify a matrix of covariates in the `covariates:` directive of the config file. Covariates matrix should be all numeric with the exception of an optional `Batch` column that contains a factor representing a "Batch-like" variable. Batch need not be sequencing batch per se, as we have witnessed that, as a stable epigenetic mark, methylation is much less prone to batch effects resulting from different sequencing times/sites. `Batch`, instead, can be any group that could explain a major variation in the data set: ie. sequencing technology (PacBio vs ONT), flowcell chemistry (ONT_R9 vs ONT_R10), methylation/base calling model used (dorado sup 5mc vs dorado hac 5mc_5hmc), or some combination there of. The covariates matrix must also have a `Sample_name` column that matches exactly sample IDs present in the input data table. The rest of the columns should be numeric columns of additional variables that user wants to be corrected for when calling outliers, for instance, Age, culture time for cell lines, post-mortem interval, DNA Integrity (DIN), etc. 
+To explicitly correct for covariates, one simply needs to specify a matrix of covariates in the `covariates:` directive of the config file. Covariates matrix should be all numeric with the exception of an optional `Batch` column that contains a factor representing a "Batch-like" variable. Batch need not be sequencing batch per se, as we have witnessed that, as a stable epigenetic mark, methylation is much less prone to batch effects resulting from different sequencing times/sites. `Batch`, instead, can be any group that could explain a major variation in the data set: ie. sequencing technology (PacBio vs ONT), flowcell chemistry (ONT_R9 vs ONT_R10), methylation/base calling model used (dorado sup 5mc vs dorado hac 5mc_5hmc), or some combination there of. The covariates matrix must also have a `Sample_name` column that matches exactly sample IDs present in the input data table. The rest of the columns should be **linearly independent** numeric columns of additional variables that the user wants to be corrected for when calling outliers, for instance, Age, cell type proprotions, culture time for cell lines, post-mortem interval, DNA Integrity (DIN), etc. An example covariates file is present in the github as `example_input.covariates.txt`. 
 
-Sex need not be explicitly included in the covariates matrix, as Metafora automatically estimate sex chromosome copy number by measuring depth across sex chromosomes and then controls this estimated sex during outlier calling.
+Sex need not be explicitly included in the covariates matrix, as Metafora automatically estimates sex chromosome copy number by measuring depth across sex chromosomes and then controls for this estimated sex during outlier calling.
 
 ### Output
 Metafora generates two final output files per sample to represent the methylation outlier in the sample. These output files can be found in sample-level directories generated in the `output_dir` specified in the config file. 
@@ -129,3 +136,7 @@ conda activate snakemake
 #run metafora with following command after updating config.yml file
 snakemake -pr --snakefile Metafora.snakefile --configfile config.yml --use-conda --profile <cluster_profile> --jobs 100
 ```
+
+# Disclaimer
+
+**Warning**: Metafora is still actively being developed, if you are testing it out and run into any problems or have specific feature requests, please reach out to me or submit issue! tannerj@stanford.edu :) 
