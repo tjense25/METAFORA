@@ -3,11 +3,14 @@
 # METAFORA
 **Metafora** (**Met**hylation **a**nalysis **f**or **o**utlier **r**egion **a**nnotation) is a workflow to call methylation outlier regions--segments of the genome where methylation levels in an individual deviate significantly from the normal levels seen in the general population--from long-read whole genome sequencing data. Metafora has been tested for both PacBio and ONT methylation calls and can further correct for technology-specific biases to allow joint analysis of across different sequencing modalities.
 
+Methylation outliers identified by Metafora can be used to pinpoint regions of the epignome that are being dysregulated. For rare disease genomes, this can help find aberrantly methylated imprinting regions that may lead to imprinting disorders as well as other diagnostic epivariants. In addition, methylation outliers can help interpret the functional impacts of nearby rare variants. 
+
 Benefits of Metafora include its ability to model uncertainty of methylation proportions from variable read depth and its ability to correct for technical covariates and hidden factors when detecting methylation outliers. Metafora uses an unbiased segmentation approach that learns methylation outlier regions from the data rather than relying on annotations of CpG islands or promoters. It also has broad applicability across many sequencing modalities and tools.
 
 
 ## Methods
-<img width="2551" alt="image" src="https://github.com/user-attachments/assets/0605edfc-cf92-4d95-b258-41f2aec5f7f6">
+<img width="1662" alt="image" src="https://github.com/user-attachments/assets/60f7ba2e-14b1-4243-a859-ef14a1f92881">
+
 
 To call outliers, Metafora uses a four step approach detailed below:
 1. First, a mean population methylation reference is generated for a given tissues by aggregating beta values (methylation proportions) over each CpG across all samples sequenced for that tissue. This gives us an expectation for the "normal" level of methylation that we'd predict at any given CpG.
@@ -73,7 +76,7 @@ For **PacBio**, expected input is a methylated bam file. As part of pre-processi
 
 For **ONT**, expected input is a methylated bam file. As part of pre-processing, Metafora will run modBam2Bed on the methylated file to generate a bed file of methylation proportions. **ONT** is specified for nanopore genomes where methylation has been called with guppy or dorado and methylation is stored in the Bam file as MM/ML tags. For nanopolish called ONT methylation you must manually format to be consistent with the **Metafora** input type.
 
-If using other tools or technologies to call methylation, it is possible to manually format methylation calls to be consistent with Metafora expected formatting and input them with the input type **Metafora**. Metafora formatting requires a 5-column, tsv-separated bed file that is sorted by position, bgzipped, and tabix indexed. 5 columns should be `chromosome`, `start`, `end`, `depth`, and `beta` as seen in the example below. Using this formatting it would technically be possible to call outliers from whole-genome bisulfite sequencing, though this has not been tested. 
+If using other tools or technologies to call methylation, it is possible to manually format methylation calls to be consistent with Metafora's expected formatting and input them with the input type **Metafora**. Metafora formatting requires a 5-column, tsv-separated bed file that is sorted by position, bgzipped, and tabix indexed. 5 columns should be `chromosome`, `start`, `end`, `depth`, and `beta` as seen in the example below. Using this formatting it would hypothetically be possible to call outliers from whole-genome bisulfite sequencing cohorts, though this has not been tested. 
 
 ```
 chromosome      start   end     depth   beta
@@ -88,7 +91,7 @@ chr1    10541   10541   70      0.942882857142857
 chr1    10562   10562   70      0.899971428571429
 ```
 ### Reference Genome Specification
-In addition to input bams, the user must also specificy a reference genome that was used for aligning bams / calling methylation. This should ideally match exactly the reference of the aligned bams. Reference is specified as a fasta in the `reference_fasta:` directive of the config yaml file. In addition to this reference genome, the user may also need to specify in the `reference_seqnames_table:` directive a table of chromosome seqnames mapped to whether they are an **autosome** or a **sex_chromosome**. Metafora will only run on chromosomes specified in this file, so make sure seqnames exactly match between reference fasta and seqnames table. By default, Metafora is set up to run on GRCh38 where autosomes are named `chr1`, `chr2`, ... , `chr22` and sex chromosomes are `chrX` and `chrY`. For any other reference genome or version make sure this table is updated!!
+In addition to input bams, the user must also specificy a reference genome that was used for aligning bams / calling methylation. Reference is specified as a fasta in the `reference_fasta:` directive of the config yaml file. In addition to this reference genome, the user may also need to point to using the `reference_seqnames_table:` directive a table of chromosome seqnames mapped to whether they are an **autosome**, **sex_chromosome_X**, or **sex_chromosome_Y**. Metafora will only run on chromosomes listed in this file, so make sure seqnames exactly match between reference fasta and seqnames table. By default, Metafora is set up to run on GRCh38 where autosomes are named `chr1`, `chr2`, ... , `chr22` and sex chromosomes are `chrX` and `chrY`. For any other reference genome or version make sure this table is updated!! **sex_chormosome_X** and **sex_chromosome_Y** must both be specified or metafora will automatically run with `SKIP_SEX_CHROMSOME_ESTIMATION` turned on and will not call outliers on sex chromosomes. 
 
 reference_seqnames_table example:
 ```
@@ -97,8 +100,8 @@ chr2 autosome
  . . .
 chr20 autosome
 chr21 autosome
-chrX sex_chromosome
-chrY sex_chromosome
+chrX sex_chromosome_X
+chrY sex_chromosome_Y
 ```
 
 **Disclaimer**: Metafora has only been tested on build hg38, but scripts *should* be general enough to work on other genome builds as well. If you run into troubles, please reach out :) 
@@ -108,7 +111,7 @@ By default, Metafora controls for technical covariates, biological factors and b
 
 To explicitly correct for covariates, one simply needs to specify a matrix of covariates in the `covariates:` directive of the config file. Covariates matrix should be all numeric with the exception of an optional `Batch` column that contains a factor representing a "Batch-like" variable. Batch need not be sequencing batch per se, as we have witnessed that, as a stable epigenetic mark, methylation is much less prone to batch effects resulting from different sequencing times/sites. `Batch`, instead, can be any group that could explain a major variation in the data set: ie. sequencing technology (PacBio vs ONT), flowcell chemistry (ONT_R9 vs ONT_R10), methylation/base calling model used (dorado sup 5mc vs dorado hac 5mc_5hmc), or some combination there of. The covariates matrix must also have a `Sample_name` column that matches exactly sample IDs present in the input data table. The rest of the columns should be **linearly independent** numeric columns of additional variables that the user wants to be corrected for when calling outliers, for instance, Age, cell type proprotions, culture time for cell lines, post-mortem interval, DNA Integrity (DIN), etc. An example covariates file is present in the github as `example_input.covariates.txt`. 
 
-Sex need not be explicitly included in the covariates matrix, as Metafora automatically estimates sex chromosome copy number by measuring depth across sex chromosomes and then controls for this estimated sex during outlier calling.
+Sex should not be explicitly included in the covariates matrix, as Metafora automatically estimates sex chromosome copy number by measuring depth across sex chromosomes and then controls for this estimated sex during outlier calling, but the user can explicitly include sex if running with `SKIP_SEX_CHROMOSOME_ESTIMATION` turned on. 
 
 ### Output
 Metafora generates two final output files per sample to represent the methylation outlier in the sample. These output files can be found in sample-level directories generated in the `output_dir` specified in the config file. 
@@ -151,6 +154,14 @@ conda activate snakemake
 #run metafora with following command after updating config.yml file
 snakemake -pr --snakefile Metafora.snakefile --configfile config.yml --use-conda --profile <cluster_profile> --jobs 100
 ```
+
+## Additional Workflow Parameters
+The following parameters can be set in the `params:` directive of the config file, giving the user additional control on how to run Metafora
+* `MAX_DEPTH`: Maxmimum read depth that methylation estimates are capped at (Default: **30**). Metafora caps read depth at this value to ensure one sample is unduly influencing mean methylation profile because of higher sequencing depth. Capping read depth also ensures p-values from CpG methylation proportion hypothesis testing are not being inflated.
+* `MIN_SEG_SIZE`: Minimum number of cpgs within a segment during the segmentation algorithm (Default: **20**). This value applies both to the mean profile segmentation to calculate hidden factors, as well as the deviance score segmentation to find candidate methylation outlier regions. By default, we set MIN_SEG_SIZE to 20 because we believe larger outlier blocks of CpGs tend to be easier to interpret, but this value can be lowered to identify more shorter-sized outliers.
+* `MIN_ABS_ZSCORE`: Threshold for absolute methylation z-score above which an outlier is called (Default: **3**). Increasing threshold will lead to more stringent outliers, while decreasing threshold could be helpful with small sample sizes where there is more limited power. User can always start with a low-threshold and manually filter outliers based on reported z-score in the output tables.
+* `MIN_ABS_DELTA`: Threshold of absolute effect difference **delta** between outlier sample and population median methylation (Default: **0.25**). Outliers with absolute deltas lower than this value will be filtered out and not reported in the output tables. When looking for methlyation outliers, we are usually interested in large effect differences corresponding often to allele-specific effects. While this value is arbitrary, we have found it effective at filtering out the significant outliers that are not substantively that different in terms of methylation levels differences.
+* `SKIP_SEX_CHROM_ESTIMATION`: Whether to run sex chromosome estimation and call methylation outliers on sex chromosomes (Default: **FALSE**). Set to TRUE if user wants to skip this estimation step and only call methylation outliers on autosomes. This will automatically be set to TRUE if the user did not specify both a **sex_chromosome_X** and **sex_chromosome_Y** in the `reference_seqnames_table`. 
 
 # Disclaimer
 
