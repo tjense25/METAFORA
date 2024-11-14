@@ -87,6 +87,21 @@ chr1    10524   10524   74      0.93245
 chr1    10541   10541   70      0.942882857142857
 chr1    10562   10562   70      0.899971428571429
 ```
+### Reference Genome Specification
+In addition to input bams, the user must also specificy a reference genome that was used for aligning bams / calling methylation. This should ideally match exactly the reference of the aligned bams. Reference is specified as a fasta in the `reference_fasta:` directive of the config yaml file. In addition to this reference genome, the user may also need to specify in the `reference_seqnames_table:` directive a table of chromosome seqnames mapped to whether they are an **autosome** or a **sex_chromosome**. Metafora will only run on chromosomes specified in this file, so make sure seqnames exactly match between reference fasta and seqnames table. By default, Metafora is set up to run on GRCh38 where autosomes are named `chr1`, `chr2`, ... , `chr22` and sex chromosomes are `chrX` and `chrY`. For any other reference genome or version make sure this table is updated!!
+
+reference_seqnames_table example:
+```
+chr1 autosome
+chr2 autosome
+ . . .
+chr20 autosome
+chr21 autosome
+chrX sex_chromosome
+chrY sex_chromosome
+```
+
+**Disclaimer**: Metafora has only been tested on build hg38, but scripts *should* be general enough to work on other genome builds as well. If you run into troubles, please reach out :) 
 
 ### Specifying Additional Covariates to Correct (Optional)
 By default, Metafora controls for technical covariates, biological factors and batch effects that could confound outlier analysis. It acheives this by computing hidden factors using PCA of the methylation proprotion matrix. Hidden factors will capture the largest sources of variability between samples, usually coming from technical factors such as sequencing modality, sequencing depth, library quality, etc. Because the PCs are capturing this source of variation, we do not believe it is necesarry to explicity correct for them in the model, though we give users the options to explicity provide a matrix of covariates to correct for and regress out for methylation z-score estimation. 
