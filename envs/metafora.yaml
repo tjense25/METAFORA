@@ -1,0 +1,29 @@
+name: metafora
+channels:
+  - bioconda
+  - conda-forge
+  - r 
+dependencies:
+  - tabix
+  - bedtools
+  - r-base
+  - r-argparser
+  - r-data.table
+  - r-matrix
+  - r-tidyverse
+  - r-magrittr
+  - r-pbmcapply
+  - r-bedr
+  - r-cowplot
+  - r-mclust
+  - r-mvtnorm
+  - r-tibble
+  - r-matrixstats
+  - r-ggrepel
+  - bioconductor-limma
+  - bioconductor-edger
+  - bioconductor-pcatools
+  - bioconductor-fastseg
+  - bioconductor-biostrings
+  - bioconductor-plyranges
+  - bioconductor-genomicranges

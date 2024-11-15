@@ -5,9 +5,7 @@ library(tibble)
 library(fastseg)
 library(GenomicRanges)
 library(tidyverse)
-library(scran)
 library(argparser)
-library(sigmoid)
 library(PCAtools)
 library(pbmcapply)
 library(Matrix)
@@ -17,6 +15,7 @@ library(matrixStats)
 
 parser <- arg_parser("Calculate and segment per sample zscore")
 parser <- add_argument(parser, "--sample", help="sample to parse and detect outliers in")
+parser <- add_argument(parser, "--tissue", help="tissue this sample was sequenced from")
 parser <- add_argument(parser, "--chrom", help="chromosome to call outliers on")
 parser <- add_argument(parser, "--beta_mat", help="input sample beta matrix")
 parser <- add_argument(parser, "--depth_mat", help="input sample depth matrix")
@@ -31,7 +30,7 @@ parser <- add_argument(parser, "--max_depth", help="maxmimum depth of read cover
  
 argv <- parse_args(parser)
 
-segment_chrom <- function(meth.sample, this_chrom, zscore_threshold=2, segment_alpha=.01, min_seg_size = 20, median_seg_z = 1) {
+segment_chrom <- function(meth.sample, this_chrom, segment_alpha=.01, min_seg_size = 20, median_seg_z = 1) {
   # segment zscore profile
   meth.sample <- meth.sample[meth.sample$chrom == this_chrom,]
   
@@ -76,7 +75,7 @@ segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this
 
   # segment zscore profile
   cand.segs <- Reduce(rbind,lapply(c(this_chrom), function(x) {  
-        segs <- segment_chrom(meth.sample, x, zscore_threshold, segment_alpha, min_seg_size, median_seg_z)
+        segs <- segment_chrom(meth.sample, x, segment_alpha, min_seg_size, median_seg_z)
         if (nrow(segs) == 0) {return(NULL)}
         return(segs %>% mutate(ID=this_sample, seg_id=paste0(x,"_",this_sample,"_",1:nrow(segs))))
       }))
@@ -228,7 +227,6 @@ main <- function(argv) {
     #make population mean specific to Batch to make less susceptible to batch effects:
     if(!is.null(argv$global_meth_pcs) && "Batch" %in% colnames(covariates))  {
         this_batch <- covariates$Batch[rownames(covariates) == this_sample]
-        this_batch
         tmp.bmat <- tmp.bmat[,covariates$Batch == this_batch]
         tmp.dmat <- tmp.dmat[,covariates$Batch == this_batch]
     }
@@ -271,6 +269,8 @@ main <- function(argv) {
     }
 
     ## Save Data
+    outlier.segs$Tissue <- argv$tissue
+    outlier.segs$CHROM_TYPE <- "AUTOSOME"
     outlier_z_matrix = matrix(outlier_z_matrix, nrow=nrow(outlier.segs))
     rownames(outlier_z_matrix)  <- outlier.segs$seg_id
     colnames(outlier_z_matrix) <- colnames(betas)[4:ncol(betas)]

@@ -1,24 +1,19 @@
 library(data.table)
 library(cowplot)
-library(corrplot)
 library(ggrepel)
 library(limma)
 library(edgeR)
-library(ggrepel)
 library(tibble)
-library(fastseg)
 library(GenomicRanges)
 library(tidyverse)
-library(scran)
 library(argparser)
-library(sigmoid)
 library(PCAtools)
 library(pbmcapply)
 library(Matrix)
 library(magrittr)
 library(mclust)
 library(mvtnorm)
-library(cowplot)
+library(matrixStats)
 
 parser <- arg_parser("Script to compute global variation PCs in methylation profiles and auto-detect outliers")
 parser <- add_argument(parser, "--seg_beta", help = "comma-separated list of summarized segment betas from segmentation for each autosome")
@@ -31,6 +26,8 @@ parser <- add_argument(parser, "--pc_biplot_out", help="where to write PCA biplo
 parser <- add_argument(parser, "--sex_plot_out", help="where to write sex chromosome copy number and PCA biplot")
 parser <- add_argument(parser, "--sex_chrom_summary_out", help="where to write data frame of sex chromosome copy number estimates")
 parser <- add_argument(parser, "--global_meth_pcs_out", help="where to write global PC covariates file ")
+parser <- add_argument(parser, "--chrX_seqname", help="seqname of the X chromosome in the reference")
+parser <- add_argument(parser, "--chrY_seqname", help="seqname of the Y chromosome in the reference")
 
 args <- parse_args(parser)
 
@@ -92,60 +89,65 @@ if (!is.null(args$covariates)) {
     hidden_factor_df <- left_join(hidden_factor_df, covariates)
 }
 
-#sex  chromosome analysis
-sex_seg_betas <- unlist(strsplit(args$sex_seg_beta,","))
-sex_seg_depths <- unlist(strsplit(args$sex_seg_depth,","))
-sex_segment_betas <- do.call(rbind, lapply(sex_seg_betas, fread))
-sex_segment_depths <- do.call(rbind, lapply(sex_seg_depths, fread))
-sex_beta.mat <- as.matrix(sex_segment_betas[,8:ncol(sex_segment_betas)]) 
-sex_segment_depths <- as.matrix(sex_segment_depths)
+#sex  chromosome estimation analysis
+sex_chrom_copynumber <- NULL
+if(args$sex_seg_beta != "SKIP" && args$sex_seg_depth != "SKIP") {
+
+  sex_seg_betas <- unlist(strsplit(args$sex_seg_beta,","))
+  sex_seg_depths <- unlist(strsplit(args$sex_seg_depth,","))
+  sex_segment_betas <- do.call(rbind, lapply(sex_seg_betas, fread))
+  sex_segment_depths <- do.call(rbind, lapply(sex_seg_depths, fread))
+  sex_beta.mat <- as.matrix(sex_segment_betas[,8:ncol(sex_segment_betas)]) 
+  sex_segment_depths <- as.matrix(sex_segment_depths)
 
 
-chrX_median_depth <- colMedians(sex_segment_depths[sex_segment_betas$chrom == "chrX",])
-chrY_median_depth <- colMedians(sex_segment_depths[sex_segment_betas$chrom == "chrY",])
+  chrX_median_depth <- colMedians(sex_segment_depths[sex_segment_betas$chrom == args$chrX_seqname,])
+  chrY_median_depth <- colMedians(sex_segment_depths[sex_segment_betas$chrom == args$chrY_seqname,])
 
-sex_chrom_copynumber <- data.frame(Sample_name = colnames(sex_segment_depths),
-                                   chrX = chrX_median_depth / median_depth * 2,
-                                   chrY = chrY_median_depth / median_depth * 2)
+  sex_chrom_copynumber <- data.frame(Sample_name = colnames(sex_segment_depths),
+                                     chrX = chrX_median_depth / median_depth * 2,
+                                     chrY = chrY_median_depth / median_depth * 2)
 
-# remove correlation outliers
-sex_chrom_copynumber <- sex_chrom_copynumber[!colnames(sex_segment_depths) %in% correlation_outliers,]
-sex_beta.mat <- sex_beta.mat[,!colnames(sex_beta.mat) %in% correlation_outliers]
-sex_segment_depths <- sex_segment_depths[,!colnames(sex_segment_depths) %in% correlation_outliers]
+  # remove correlation outliers
+  sex_chrom_copynumber <- sex_chrom_copynumber[!colnames(sex_segment_depths) %in% correlation_outliers,]
+  sex_beta.mat <- sex_beta.mat[,!colnames(sex_beta.mat) %in% correlation_outliers]
+  sex_segment_depths <- sex_segment_depths[,!colnames(sex_segment_depths) %in% correlation_outliers]
 
-sex_chrom_clustering <- Mclust(sex_chrom_copynumber[,-1], G=2)
-sex_chrom_centers <- t(cbind(sex_chrom_clustering$parameters$mean, "XX"=c(2,0), "XY"=c(1,1)))
-clustering_distances <- as.matrix(dist(sex_chrom_centers))
-XX_index <- which.min(clustering_distances["XX",1:2])
-XY_index <- which.min(clustering_distances["XY", 1:2])
-sex_chrom_map = c(0,0)
-sex_chrom_map[XX_index] <- "XX"
-sex_chrom_map[XY_index] <- "XY"
-XX_index != XY_index
+  sex_chrom_clustering <- Mclust(sex_chrom_copynumber[,-1], G=2)
+  sex_chrom_centers <- t(cbind(sex_chrom_clustering$parameters$mean, "XX"=c(2,0), "XY"=c(1,1)))
+  clustering_distances <- as.matrix(dist(sex_chrom_centers))
+  XX_index <- which.min(clustering_distances["XX",1:2])
+  XY_index <- which.min(clustering_distances["XY", 1:2])
+  sex_chrom_map = c(0,0)
+  sex_chrom_map[XX_index] <- "XX"
+  sex_chrom_map[XY_index] <- "XY"
+  XX_index != XY_index
 
-sex_chrom_copynumber$cluster_probability <- sapply(1:nrow(sex_chrom_copynumber), function(x) {cluster=sex_chrom_clustering$classification[x]; pmvnorm(lower=as.numeric(sex_chrom_copynumber[x,2:3])-.25,
-                                                                                              upper=as.numeric(sex_chrom_copynumber[x,2:3])+.25, 
-                                                                                              mean=sex_chrom_clustering$parameters$mean[,cluster], 
-                                                                                              sigma=sex_chrom_clustering$parameters$variance$sigma[,,cluster])})
+  sex_chrom_copynumber$cluster_probability <- sapply(1:nrow(sex_chrom_copynumber), function(x) {cluster=sex_chrom_clustering$classification[x]; 
+                                                     pmvnorm(lower=as.numeric(sex_chrom_copynumber[x,2:3])-.25,
+                                                              upper=as.numeric(sex_chrom_copynumber[x,2:3])+.25, 
+                                                              mean=sex_chrom_clustering$parameters$mean[,cluster], 
+                                                              sigma=sex_chrom_clustering$parameters$variance$sigma[,,cluster])})
 
-sex_chrom_copynumber$sex <- sapply(sex_chrom_clustering$classification, function(x) sex_chrom_map[x])
-sex_chrom_copynumber$sex[sex_chrom_copynumber$cluster_probability < .5] <- "ambiguous"
+  sex_chrom_copynumber$sex <- sapply(sex_chrom_clustering$classification, function(x) sex_chrom_map[x])
+  sex_chrom_copynumber$sex[sex_chrom_copynumber$cluster_probability < .5] <- "ambiguous"
 
+  B <- sex_beta.mat
+  M <- log(B/(1-B))
+  Mpcs <- pca(M)
+  Mpcs$metadata <- data.frame(Sample_name=colnames(sex_beta.mat), sex_chrom_copynumber)
 
-B <- sex_beta.mat
-M <- log(B/(1-B))
-Mpcs <- pca(M)
-Mpcs$metadata <- data.frame(Sample_name=colnames(sex_beta.mat), sex_chrom_copynumber)
+  depth_plot <- ggplot(sex_chrom_copynumber, aes(chrX, chrY, color=sex)) + geom_point(size=3) + ggtitle("Sex Chromosome Copy Number") + theme_minimal()
+  gbiplot <- biplot(Mpcs, lab=rownames(Mpcs$rotated), colby="sex") + ggtitle("Sex chromosome methylation profiles")
+  plot_grid(depth_plot, gbiplot)
+  ggsave(args$sex_plot_out, width=10)
 
-depth_plot <- ggplot(sex_chrom_copynumber, aes(chrX, chrY, color=sex)) + geom_point(size=3) + ggtitle("Sex Chromosome Copy Number") + theme_minimal()
-gbiplot <- biplot(Mpcs, lab=rownames(Mpcs$rotated), colby="sex") + ggtitle("Sex chromosome methylation profiles")
-plot_grid(depth_plot, gbiplot)
-ggsave(args$sex_plot_out, width=10)
+  #filter out individuals with ambiguous sex chromosomes (not XX or XY)
+  ambiguous_sex_chrom_outlier <- filter(sex_chrom_copynumber, sex=="ambiguous") %>% pull(Sample_name)
+
+  hidden_factor_df$sex <-  as.integer(sex_chrom_copynumber$sex == "XY")
+  hidden_factor_df <- hidden_factor_df[!hidden_factor_df$Sample_name %in% ambiguous_sex_chrom_outlier,]
+
+}
 fwrite(sex_chrom_copynumber, args$sex_chrom_summary_out, row.names=F, col.names=T, sep="\t")
-
-#filter out individuals with ambiguous sex chromosomes (not XX or XY)
-ambiguous_sex_chrom_outlier <- filter(sex_chrom_copynumber, sex=="ambiguous") %>% pull(Sample_name)
-
-hidden_factor_df$sex <-  as.integer(sex_chrom_copynumber$sex == "XY")
-hidden_factor_df <- hidden_factor_df[!hidden_factor_df$Sample_name %in% ambiguous_sex_chrom_outlier,]
 fwrite(hidden_factor_df, args$global_meth_pcs_out, row.names=F, col.names=T, sep="\t")

@@ -1,10 +1,8 @@
 library(argparser)
 library(Matrix)
-library(methylKit)
 library(tidyverse)
 library(magrittr)
 library(data.table)
-library(Biostrings)
 library(plyranges)
 library(pbmcapply)
 library(fastseg)
@@ -25,19 +23,6 @@ parser <- add_argument(parser, "--segment_beta", help="where to write mean porfi
 parser <- add_argument(parser, "--segment_depth", help="where to write average depth over segments")
 argv <- parse_args(parser)
 
-#valid_chrom = c(paste0("chr", seq(1,22)), "chrX", "chrY", "chrM")
-#ref = readDNAStringSet("/oak/stanford/groups/euan/annotations/homo_sapiens/GRCH38/GRCh38_no_alt_analysis_set_GCA_000001405.15.fasta")
-#chrs <- names(ref)[1:25]
-#cpgs <- lapply(chrs, function(x) start(matchPattern("CG", ref[[x]])))
-#cpgr <- do.call(c, lapply(1:25, function(x) GRanges(valid_chrom[x], IRanges(cpgs[[x]],width=1))))
-#cpgr %<>% as.data.frame()
-#cpgr %<>% select(seqnames,start,end) %>% mutate(start = start -1, end=end-1)
-#fwrite(cpgr, "../methylation_results/GRCh38.CpG_sites.bed", col.names =F, row.names=F, sep="\t")
-
-#this_chrom <- "chrM"
-#methylation.dat <- fread("../methylation_results/GRCh38.CpG_sites.bed")
-#methylation.dat
-
 this_chrom <- argv$chrom
 methylation.dat <- fread(argv$cpgs)
 colnames(methylation.dat) <- c("chromosome", "start","end")
@@ -45,6 +30,7 @@ methylation.dat <- methylation.dat[methylation.dat$chromosome == this_chrom,]
 max_start<- max(methylation.dat$start) + 1
 this_region=paste0(this_chrom,":",1,"-",max_start)
 min_cpg_number <- argv$min_segment_cpgs
+this_region
 
 #read in files and merge depth and betas to cpg data.table 
 file_list=read.table(argv$filelist,col.names="file")$file

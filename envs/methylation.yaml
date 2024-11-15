@@ -1,0 +1,9 @@
+name: methylation
+channels:
+    - bioconda
+    - conda-forge
+    - epi2melabs
+dependencies:
+    - tabix
+    - bedtools
+    - modbam2bed
