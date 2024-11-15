@@ -1,7 +1,7 @@
 <img width="2309" alt="image" src="https://github.com/user-attachments/assets/5458ee28-a07f-4a5a-b6d6-aa5c896d837e">
 
 # METAFORA
-**Metafora** (**Met**hylation **a**nalysis **f**or **o**utlier **r**egion **a**nnotation) is a workflow to call methylation outlier regions--segments of the genome where methylation levels in an individual deviate significantly from the normal levels seen in the general population--from long-read whole genome sequencing data. Metafora has been tested for both PacBio and ONT methylation calls and can further correct for technology-specific biases to allow joint analysis of across different sequencing modalities.
+**Metafora** (**Met**hylation **a**nalysis **f**or **o**utlier **r**egion **a**nnotation) is a workflow to call methylation outlier regions--segments of the genome where methylation levels in an individual deviate significantly from the normal levels seen in the general population--from long-read whole genome sequencing data. Metafora has been tested for both PacBio and ONT methylation calls and can further correct for technology-specific biases to allow joint analysis of different sequencing modalities.
 
 Methylation outliers identified by Metafora can be used to pinpoint regions of the epignome that are being dysregulated. For rare disease genomes, this can help find aberrantly methylated imprinting regions that may lead to imprinting disorders as well as other diagnostic epivariants. In addition, methylation outliers can help interpret the functional impacts of nearby rare variants. 
 
@@ -16,7 +16,7 @@ To call outliers, Metafora uses a four step approach detailed below:
 1. First, a mean population methylation reference is generated for a given tissues by aggregating beta values (methylation proportions) over each CpG across all samples sequenced for that tissue. This gives us an expectation for the "normal" level of methylation that we'd predict at any given CpG.
 2. Next, the observed methylation profile of a given sample is compared to the population mean reference by conducting a hypothesis test at each CpG to determine if sample-level methylation equals the population mean. We account for uncertainty in the sample-level beta estimate due to variable read depth by modeling these methylation proportion with a beta distribution. P-values from these hypothesis tests are converted to signed z-scores which represents a population deviance score. Values of this score near zero correspond to no difference, lower negative values suggest stronger hypomethylation, and higher positive values suggest stronger hypermethylation.
 3. After generating individual CpG population deviance scores, the whole deviance score profile is segmented to find contiguous blocks of CpG that are all consistently deviant. Methylation deviance scores are summarized over these regions. This segmentation gives us candidate outlier regions, blocks of CpGs where a sample deviates significanlty from the population mean.
-4. Finally, once we have these candidate outlier regions, methylation proportions are summarized over each region across all samples. These methylation betas are then converted to M-values and then corrected by regression out the effect of known and hidden covariates. Corrected M-values are then scaled and centered to generate methylation z-scores, which can then be thresholded to determine the methylation outliers that exist at the tails of these methylation distributions.
+4. Finally, once we have these candidate outlier regions, methylation proportions are summarized over each region across all samples. These methylation betas are then converted to M-values and then corrected by regressing out the effect of known and hidden covariates. Corrected M-values are then scaled and centered to generate methylation z-scores, which can then be thresholded to determine the methylation outliers that exist at the tails of these methylation distributions.
 
 ### Automated Global Outlier Detection
 
@@ -24,7 +24,7 @@ Finding meaningful methylation outlier regions assumes these methylation outlier
 
 This process is automated in Metafora by calculating pair-wise correlations of sample methylation profiles. As a stable epigenetic mark, we have found methylation to be highly conserved and correlated across samples. We find on average any two samples should be have pearson correlation values near ~0.96 even when sequenced from different sequencing modalities, though this might vary based on tissue heterogeneity and other factors. To identify global outliers, Metafora calculates a correlation matrix across methylation profiles of all samples, and summarizes each sample by its mean correlation with all other samples. This mean should be centered near 1 for most concordant samples, while global outliers will have much lower outlying values. To call global outliers then, we simply take the distribution of this mean correlation and use tukey's method to call individuals with outlying low levels. These samples will be removed from hidden factors calculation and methylation outlier regions will not be called for them. 
 
-As an example here is a Metafora run of a cohort of 43 PBMC samples, into which 3 "global outliers" were spiked in that were seqeunced from different tissues and incorrectly labeled as PBMC: 2 from Cerebellum tissue, and 1 from a cultured fibroblast sample. As methylation should be tissue-specific, methylation profiles from different tissues should display global methylation deviation and these samples should be significantly less correlated. Metafora's pairwise corrleation analysis detects all three of these samples as global outliers and will automatically exclude them from the analysis. 
+As an example here is a Metafora run of a cohort of 43 PBMC samples, into which 3 "global outliers" were spiked in that were sequenced from different tissues and incorrectly labeled as PBMC: 2 from Cerebellum tissue, and 1 from a cultured fibroblast sample. As methylation should be tissue-specific, methylation profiles from different tissues should display global methylation deviation and these samples should be significantly less correlated. Metafora's pairwise corrleation analysis detects all three of these samples as global outliers and will automatically exclude them from the analysis. 
 
 <img width="1056" alt="image" src="https://github.com/user-attachments/assets/ec5265df-0853-47b6-aff1-6b86aea62315">
 
@@ -65,7 +65,7 @@ Input table is expected to have the following 4 columns:
 * `Input_file` (Path to input file corresponding to input type)
 
 ```
-Sample_name  Tissue  Technology  Input_file
+Sample_name  Tissue  Technology  Methylation_input
 SampleA  WholeBlood  ONT  /path/to/SampleA.ONT.bam
 SampleB WholeBlood PacBio /path/to/SampleB.PacBio.bam
 SampleC Brain Metafora /path/to/SampleC.methylation.METAFORA_formatted.bed.gz
