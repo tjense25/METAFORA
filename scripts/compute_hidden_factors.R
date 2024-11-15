@@ -137,7 +137,12 @@ if(args$sex_seg_beta != "SKIP" && args$sex_seg_depth != "SKIP") {
   Mpcs <- pca(M)
   Mpcs$metadata <- data.frame(Sample_name=colnames(sex_beta.mat), sex_chrom_copynumber)
 
-  depth_plot <- ggplot(sex_chrom_copynumber, aes(chrX, chrY, color=sex)) + geom_point(size=3) + ggtitle("Sex Chromosome Copy Number") + theme_minimal()
+  depth_plot <- ggplot(sex_chrom_copynumber, aes(chrX, chrY, color=sex)) + geom_point(size=3) + ggtitle("Sex Chromosome Copy Number") + theme_minimal() +
+    xlab("X chromosome coverage ratio") + ylab("Y chromosome coverage ratio") +
+      theme(panel.border = element_rect(color="black", fill=NA, size=1),
+             text=element_text(size=16),
+             axis.title = element_text(size=18, face="bold"),
+             plot.title=element_text(size=20, face="bold"))
   gbiplot <- biplot(Mpcs, lab=rownames(Mpcs$rotated), colby="sex") + ggtitle("Sex chromosome methylation profiles")
   plot_grid(depth_plot, gbiplot)
   ggsave(args$sex_plot_out, width=10)

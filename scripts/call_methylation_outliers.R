@@ -170,6 +170,7 @@ plot_outliers <- function(samp, cand.segs, meth.sample, z.mat, plot_dir) {
 
      zscore.plot <- tmp.meth.sample %>% filter(seg_id == this_seg) %>%
        ggplot(aes(start, zscore.smoothed)) + geom_point() + geom_line() + theme_classic() +
+       geom_hline(yintercept=0, linetype="dashed", color="grey70") + 
        geom_segment(data=as.data.frame(cand.segs[i,]),mapping=aes(x=start,xend=end,y=seg.mean,yend=seg.mean),color="red", linewidth=2) +
        ylab("population mean difference zscore") 
 

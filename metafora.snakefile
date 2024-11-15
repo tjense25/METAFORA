@@ -71,7 +71,7 @@ if SKIP_SEX_CHROMOSOME_ESTIMATION in ["TRUE","T","True","true"]:
 
 rule all:
     input:
-       expand(join(outdir, "METAFORA.tissue_{tissue}.methylation_outliers.combined.tsv"), tissue=unique_tissues)
+      join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
 
 rule create_cpg_reference:
     threads: 16
@@ -383,3 +383,32 @@ rule combine_outliers:
       echo "$header" > {output}
       cat {input} | grep -v "$header" | grep -v "^$" >> {output} || true
   """
+
+rule summary_plots:
+  threads: 1 
+  resources:
+    time=2,
+    mem=24
+  input:
+    expand(join(outdir, "METAFORA.tissue_{tissue}.methylation_outliers.combined.tsv"), tissue=unique_tissues)
+  params:
+    script = "scripts/plot_summary_figures.R",
+    plot_dir = join(outdir, "summary_figures"),
+    outlier_files = ','.join(expand(join(outdir, "METAFORA.tissue_{tissue}.methylation_outliers.combined.tsv"), tissue=unique_tissues)),
+    covariates_arg = ("--covariates_files %s" % ','.join(expand(join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt"),tissue=unique_tissues))) if "covariates" in config else "",
+    MIN_ABS_ZSCORE = MIN_ABS_ZSCORE, 
+    MIN_ABS_DELTA = MIN_ABS_DELTA 
+
+  output:
+    join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
+  conda: "envs/metafora.yaml"
+  shell: """
+    Rscript {params.script} \
+      --outlier_files {params.outlier_files} \
+      --plot_dir_out {params.plot_dir} \
+      --summary_out {output} \
+      --min_abs_delta {params.MIN_ABS_DELTA} \
+      --min_abs_zscore {params.MIN_ABS_ZSCORE} \
+      {params.covariates_arg}
+  """
+    
