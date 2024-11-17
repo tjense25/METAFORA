@@ -37,7 +37,7 @@ if not "params" in config:
 MAX_DEPTH = config["params"]["MAX_DEPTH"] if "MAX_DEPTH" in config["params"] else 30
 MIN_SEG_SIZE = config["params"]["MIN_SEG_SIZE"] if "MIN_SEG_SIZE" in config["params"] else 20
 MIN_ABS_ZSCORE = config["params"]["MIN_ABS_ZSCORE"] if "MIN_ABS_ZSCORE" in config["params"] else 3
-MIN_ABS_DELTA = config["params"]["MIN_ABS_DELTA"] if "MIN_ABS_DELTA" in config["params"] else 0.3
+MIN_ABS_DELTA = config["params"]["MIN_ABS_DELTA"] if "MIN_ABS_DELTA" in config["params"] else 0.25
 SKIP_SEX_CHROMOSOME_ESTIMATION = config["params"]["SKIP_SEX_CHROMOSOME_ESTIMATION"] if "SKIP_SEX_CHROMOSOME_ESTIMATION" in config["params"] else "FALSE"
 
 reference_seqnames_table = config["reference_seqnames_table"] if "reference_seqnames_table" in config else "./GRCh38_ref_seqnames_table.txt"
@@ -242,11 +242,10 @@ rule compute_hidden_factors:
     chrX_seqname =  chrX_seqname,
     chrY_seqname =  chrY_seqname,
     covariates_arg = ("--covariates %s" % config["covariates"]) if "covariates" in config else "",
-    sex_plots = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/Sex_chromosome_estimate_plots.pdf"),
+    plot_out_dir = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/"),
   output:
     global_pcs = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt"),
-    correlation_plot = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/Pairwise_sample_correlations.pdf"),
-    pc_plot = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_biplot.pdf"),
+    cor_summary_table = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/Mean_pairwise_correlation_summary.txt"),
     sex_summary_table = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/Sex_chromosome_estimates_summary.txt")
   conda: "envs/metafora.yaml"
   shell: """
@@ -255,11 +254,10 @@ rule compute_hidden_factors:
         --seg_depth {params.seg_depth} \
         --sex_seg_beta {params.sex_seg_beta} \
         --sex_seg_depth {params.sex_seg_depth} \
-        --correlation_plot_out {output.correlation_plot} \
-        --pc_biplot_out {output.pc_plot} \
-        --sex_plot_out {params.sex_plots} \
+        --correlation_summary_out {output.cor_summary_table} \
         --sex_chrom_summary_out {output.sex_summary_table} \
         --global_meth_pcs_out {output.global_pcs} \
+        --plot_out_dir {params.plot_out_dir} \
         --chrX_seqname {params.chrX_seqname} \
         --chrY_seqname {params.chrY_seqname} \
         {params.covariates_arg}

@@ -21,16 +21,16 @@ parser <- add_argument(parser, "--seg_depth", help = "comma-separated list of su
 parser <- add_argument(parser, "--sex_seg_beta", help = "comma-separated list of summarized segment betas from segmentation for each sex chromosome")
 parser <- add_argument(parser, "--sex_seg_depth", help = "comma-separated list of summarized segment depths from segmentation for each sex chromosome")
 parser <- add_argument(parser, "--covariates", help="a dataframe of additional covariates to regress for during outlier detection", default=NULL)
-parser <- add_argument(parser, "--correlation_plot_out", help="where to write correlation plots for determining correlation outliers")
-parser <- add_argument(parser, "--pc_biplot_out", help="where to write PCA biplot")
-parser <- add_argument(parser, "--sex_plot_out", help="where to write sex chromosome copy number and PCA biplot")
+parser <- add_argument(parser, "--correlation_summary_out",help="where to write correlation analysis summary files")
 parser <- add_argument(parser, "--sex_chrom_summary_out", help="where to write data frame of sex chromosome copy number estimates")
 parser <- add_argument(parser, "--global_meth_pcs_out", help="where to write global PC covariates file ")
+parser <- add_argument(parser, "--plot_out_dir", help="where to write correlation, PC, and sex plots")
 parser <- add_argument(parser, "--chrX_seqname", help="seqname of the X chromosome in the reference")
 parser <- add_argument(parser, "--chrY_seqname", help="seqname of the Y chromosome in the reference")
 
 args <- parse_args(parser)
 
+plot_out <- args$plot_out_dir
 seg_betas <- unlist(strsplit(args$seg_beta,","))
 seg_depths <- unlist(strsplit(args$seg_depth,","))
 segment_betas <- do.call(rbind, lapply(seg_betas, fread))
@@ -48,29 +48,43 @@ correlation_outliers <- names(which(mean_cors < tukey_outlier_limit))
 
 cor_data <- melt(cor.mat)
 custom_colors <- c("darkred", "red", "yellow", "white", "cyan", "blue", "darkblue")
-cor_plot <- ggplot(cor_data %>% mutate(outlier=Var1%in%correlation_outliers), aes(Var1, Var2,  fill=value)) + geom_tile(col="white") + 
+cor_plot <- ggplot(cor_data %>% mutate(outlier=Var1%in%correlation_outliers), aes(Var1, Var2,  fill=value,color=outlier)) + geom_tile() + 
   scale_fill_gradientn(colors=custom_colors, limits = c(0, 1), name = "Correlation") +
-  geom_rect(aes(xmin = as.numeric(factor(Var1)) - 0.5, 
-                xmax = as.numeric(factor(Var1)) + 0.5,
-                ymin = 0.5, ymax = length(unique(Var2)) + 0.5,
-                color=outlier, linewidth=outlier),
-            fill = NA) +
   scale_color_manual(values=c("white", "red")) + 
-  scale_linewidth_manual(values=c(0,1.5)) +
   theme_minimal() + xlab("") + ylab("") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="bottom") 
 mean_cor_hist <- data.frame(sample=names(mean_cors), mean_cor=mean_cors, outlier=names(mean_cors) %in% correlation_outliers) %>% 
   ggplot(aes(mean_cor, fill=outlier, label=ifelse(outlier,yes=sample,no=""))) + geom_histogram() + theme_minimal() + scale_fill_manual(values=c("grey80", "red")) + geom_text_repel(aes(y=1), color="red") +
   theme(legend.position="none") + ylab("Count") + xlab("mean pairwise correlation")
 plot_grid(mean_cor_hist, cor_plot, ncol=1, rel_heights=c(2,8))
-ggsave(args$correlation_plot_out, width=10, height=13)
+ggsave(paste0(plot_out,"/Correlation_matrix.mean_cor_distribution.correlation_outliers.pdf", width=10, height=13)
 
-#var_seg_betas <- findVariableSegments(segment_betas, plot_file=argv$varseg_plot_file)
-#fwrite(var_seg_betas, file=argv$varsegment_bed_out, quote=F,row.names=F,col.names=T,sep="\t")
 
-#cat("Calculating global methylation PCs . . . \n")
-#global_meth_PCs <- findGlobalMethylationPCs(var_seg_betas, plot_dir=argv$pca_plot_dir)
-#fwrite(global_meth_PCs, file=argv$global_meth_pcs_out, quote=F, row.names=T, col.names=T, sep="\t")
+mean_correlation_df <- data.frame(Sample_name=colnames(segment_depths), mean_pairwise_correlation=mean_cors, median_depth)
+mean_correlation_df$Batch <- "Full_Cohort"
+if (!is.null(args$covariates)) {
+    covariates <- fread(args$covariates)
+    mean_correlation_df %<>% left_join(covariates)
+    if ("Batch" %in% colnames(mean_correlation_df)) {
+        #Look at Batch Plots
+        unique_batches <- unique(mean_correlation_df$Batch)
+        median_batch_mat <- matrix(do.call(cbind, lapply(unique_batches, function(this_batch) colMedians(beta.mat[,mean_correlation_df$Batch==this_batch]))))
+        colnames(median_batch_mat) <- unique_batches
+        batch_cor_mat <- cor(median_batch_mat) %>% melt
+        ggplot(batch_cor_mat, aes(Var1, Var2,  fill=value)) + geom_tile(color="white") + 
+          geom_text(aes(label = sprintf("%.2f", value)), size = 3) +  # Add correlation values
+          scale_fill_gradientn(colors=custom_colors, limits = c(0, 1), name = "Correlation") +
+          theme_minimal() + xlab("") + ylab("") +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="bottom") 
+        ggsave(paste0(plot_out, "/Median_batch_profile.batch_correlation_matrix.pdf"))
+    }
+}
+cor_data$Batch1 <- mean_correlation_df$Batch[match(cor_data$Var1, mean_correlation_df$Sample_name)]
+cor_data$Batch2 <- mean_correlation_df$Batch[match(cor_data$Var2, mean_correlation_df$Sample_name)]
+ggplot(cor_data, aes(Batch2, value, fill=Batch2)) + geom_violin(alpha=.7) + facet_grid(~Batch1) + theme_minimal() +
+    ylab("pairwise sample correlation (r)") + xlab("Batch") + theme(panel.border=element_rect(color="black", fill=NA, linewidth=2))
+ggsave(paste0(plot_out, "/Pairwise_correlations.across_batches.violin_plots.pdf"), width=15, height=15)
+fwrite(mean_correlation_df, args$correlation_summary_out, row.names=F, col.names=T, sep="\t"))
 
 beta.mat.outliers_removed <- beta.mat[,!colnames(beta.mat) %in% correlation_outliers]
 B <- beta.mat.outliers_removed
@@ -78,7 +92,7 @@ M <- log(B/(1-B))
 Mpcs <- pca(M)
 Mpcs$metadata <- data.frame(sample=colnames(beta.mat.outliers_removed), median_depth=median_depth[!colnames(beta.mat) %in% correlation_outliers])
 biplot(Mpcs, lab=rownames(Mpcs$rotated))
-ggsave(args$pc_biplot_out)
+ggsave(paste0(plot_out, "/Global_Hidden_factors.PCA_biplot.pdf"))
 
 npcs <- findElbowPoint(Mpcs$variance)
 hidden_factor_df <- data.frame(Sample_name=rownames(Mpcs$rotated), depth=Mpcs$metadata$median_depth, Mpcs$rotated[,1:npcs])
@@ -87,7 +101,13 @@ hidden_factor_df <- data.frame(Sample_name=rownames(Mpcs$rotated), depth=Mpcs$me
 if (!is.null(args$covariates)) {
     covariates <- fread(args$covariates)
     hidden_factor_df <- left_join(hidden_factor_df, covariates)
+    if ("Batch" %in% colnames(covariates)) {
+        Mpcs$metadata$Batch <- covariates$Batch[match(rownames(Mpcs$metadata), covariates$Sample_name)]
+        biplot(Mpcs, lab=rownames(Mpcs$rotated), colby="Batch") + theme(legend.position="right")
+        ggsave(paste0(plot_out, "/Global_Hidden_factors.PCA_biplot.pdf"), width=8)
+    }
 }
+
 
 #sex  chromosome estimation analysis
 sex_chrom_copynumber <- NULL
@@ -145,7 +165,7 @@ if(args$sex_seg_beta != "SKIP" && args$sex_seg_depth != "SKIP") {
              plot.title=element_text(size=20, face="bold"))
   gbiplot <- biplot(Mpcs, lab=rownames(Mpcs$rotated), colby="sex") + ggtitle("Sex chromosome methylation profiles")
   plot_grid(depth_plot, gbiplot)
-  ggsave(args$sex_plot_out, width=10)
+  ggsave(paste0(plot_out, "/Sex_chromosome_estimate_plots.pdf"), width=10) 
 
   #filter out individuals with ambiguous sex chromosomes (not XX or XY)
   ambiguous_sex_chrom_outlier <- filter(sex_chrom_copynumber, sex=="ambiguous") %>% pull(Sample_name)

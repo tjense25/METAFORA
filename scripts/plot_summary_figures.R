@@ -18,7 +18,7 @@ argv <- parse_args(parser)
 outlier_files <- unlist(strsplit(argv$outlier_files, ","))
 covariates_files <- NULL
 if(!is.null(argv$covariates_files)) {
-    covariates_files <- unlist(strsplit(argv$outlier_file,","))
+    covariates_files <- unlist(strsplit(argv$covariates_files,","))
 }
 MIN_ABS_DELTA <- argv$min_abs_delta
 MIN_ABS_ZSCORE <- argv$min_abs_zscore
@@ -30,6 +30,8 @@ plot_count_per_samp <- function(count_per_samp, label, color) {
     geom_hline(aes(yintercept=mean(n)),color="red") + 
     annotate("text", x=2,y=mean(count_per_samp$n)+1,label="Mean", color="red") +
     geom_text_repel(color="red") + 
+    geom_hline(aes(yintercept=median(n)), color="red", linewidth=2) + 
+    annotate("text", x=2, y=median(count_per_samp$n)+1,label="Median", color="red")+
     geom_hline(aes(yintercept=mean(n)+sd(n)), color="red", linetype="dashed") + 
     annotate("text", x=2,y=mean(count_per_samp$n)+sd(count_per_samp$n)+1,label="Mean + 1 s.d.", color="red") +
     geom_hline(aes(yintercept=mean(n)+2*sd(n)), color="red", linetype="dashed") + 
@@ -61,7 +63,7 @@ for (i in 1:number_tissue) {
         ggplot(aes(Batch, count, fill=direction)) + geom_boxplot(alpha=.8) + theme_minimal() + facet_wrap(~CHROM_TYPE) + 
         theme(text=element_text(size=16), panel.border=element_rect(color="black",fill=NA,size=2))  + 
         ylab("number of Methylation Outliers per genome") + 
-        scale_fill_manual(values=c("brown4", "cadetblue4"))
+        scale_fill_manual(values=c("brown4", "cadetblue4")) + scale_y_log10()
     ggsave(paste0(argv$plot_dir_out, "/Number_outliers_per_genome.box_plot.tissue_", this_tissue,".pdf"))
 
     ## Outlier counts per sample
@@ -76,6 +78,9 @@ for (i in 1:number_tissue) {
     hyper <- plot_count_per_samp(count_per_samp, "Number of HYPERmethylation Outliers", "brown4")
     plot_grid(combined, hypo, hyper, ncol=1) 
     ggplot2::ggsave(paste0(argv$plot_dir_out, "/Rank_order_number_outliers_per_genome.dot_plot.tissue_",this_tissue,".pdf"), height=21)
+
+    ggplot(outliers, aes(abs(zscore),fill=Batch)) + geom_density(alpha=.1) + theme_minimal()
+    ggsave(paste0(argv$plot_dir_out,"zscore_distribution_across_batch.tissue_",this_tissue,".pdf"))
 
     outlierlength <- outliers %>% mutate(length=end-start) %>% 
         ggplot(aes(length)) + geom_density(fill="chartreuse", alpha=.2) + scale_x_log10() + theme_minimal() +
