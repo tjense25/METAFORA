@@ -29,7 +29,6 @@ parser <- add_argument(parser, "--chrX_seqname", help="seqname of the X chromoso
 parser <- add_argument(parser, "--chrY_seqname", help="seqname of the Y chromosome in the reference")
 
 args <- parse_args(parser)
-
 plot_out <- args$plot_out_dir
 seg_betas <- unlist(strsplit(args$seg_beta,","))
 seg_depths <- unlist(strsplit(args$seg_depth,","))
@@ -46,9 +45,9 @@ tukey_outlier_limit <- quantile(mean_cors,.25) - 3*IQR(mean_cors)
 
 correlation_outliers <- names(which(mean_cors < tukey_outlier_limit))
 
-cor_data <- melt(cor.mat)
+cor_data <- melt(cor.mat) %>% mutate(outlier=(Var1%in%correlation_outliers)|(Var2%in%correlation_outliers))
 custom_colors <- c("darkred", "red", "yellow", "white", "cyan", "blue", "darkblue")
-cor_plot <- ggplot(cor_data %>% mutate(outlier=Var1%in%correlation_outliers), aes(Var1, Var2,  fill=value,color=outlier)) + geom_tile() + 
+cor_plot <- ggplot(cor_data, aes(Var1, Var2,  fill=value,color=outlier)) + geom_tile() + 
   scale_fill_gradientn(colors=custom_colors, limits = c(0, 1), name = "Correlation") +
   scale_color_manual(values=c("white", "red")) + 
   theme_minimal() + xlab("") + ylab("") +
@@ -57,40 +56,50 @@ mean_cor_hist <- data.frame(sample=names(mean_cors), mean_cor=mean_cors, outlier
   ggplot(aes(mean_cor, fill=outlier, label=ifelse(outlier,yes=sample,no=""))) + geom_histogram() + theme_minimal() + scale_fill_manual(values=c("grey80", "red")) + geom_text_repel(aes(y=1), color="red") +
   theme(legend.position="none") + ylab("Count") + xlab("mean pairwise correlation")
 plot_grid(mean_cor_hist, cor_plot, ncol=1, rel_heights=c(2,8))
-ggsave(paste0(plot_out,"/Correlation_matrix.mean_cor_distribution.correlation_outliers.pdf", width=10, height=13)
+ggsave(paste0(plot_out,"/Correlation_matrix.mean_cor_distribution.correlation_outliers.pdf"), width=10, height=13)
 
 
 mean_correlation_df <- data.frame(Sample_name=colnames(segment_depths), mean_pairwise_correlation=mean_cors, median_depth)
-mean_correlation_df$Batch <- "Full_Cohort"
 if (!is.null(args$covariates)) {
     covariates <- fread(args$covariates)
     mean_correlation_df %<>% left_join(covariates)
     if ("Batch" %in% colnames(mean_correlation_df)) {
         #Look at Batch Plots
         unique_batches <- unique(mean_correlation_df$Batch)
-        median_batch_mat <- matrix(do.call(cbind, lapply(unique_batches, function(this_batch) colMedians(beta.mat[,mean_correlation_df$Batch==this_batch]))))
+        median_batch_mat <- do.call(cbind, lapply(unique_batches, function(this_batch) rowMedians(beta.mat[,mean_correlation_df$Batch==this_batch])))
         colnames(median_batch_mat) <- unique_batches
         batch_cor_mat <- cor(median_batch_mat) %>% melt
         ggplot(batch_cor_mat, aes(Var1, Var2,  fill=value)) + geom_tile(color="white") + 
-          geom_text(aes(label = sprintf("%.2f", value)), size = 3) +  # Add correlation values
+          geom_text(aes(label = sprintf("%.4f", value)), size = 3, color="white") +  # Add correlation values
           scale_fill_gradientn(colors=custom_colors, limits = c(0, 1), name = "Correlation") +
           theme_minimal() + xlab("") + ylab("") +
           theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="bottom") 
         ggsave(paste0(plot_out, "/Median_batch_profile.batch_correlation_matrix.pdf"))
     }
 }
+if(!"Batch" %in% colnames(mean_correlation_df)) {
+    mean_correlation_df$Batch <- "Full Cohort"
+}
+mean_correlation_df$outlier <- mean_correlation_df$Sample_name %in% correlation_outliers
+ggplot(mean_correlation_df, aes(median_depth, mean_pairwise_correlation, label=ifelse(outlier,Sample_name,""))) + geom_point() + theme_minimal() + geom_text_repel(color="Red") + 
+    geom_hline(yintercept=tukey_outlier_limit, linetype="dashed", color="red")
+ggsave(paste0(plot_out,"/mean_pairwise_correlation.median_depth.scatter_plot.pdf"))
 cor_data$Batch1 <- mean_correlation_df$Batch[match(cor_data$Var1, mean_correlation_df$Sample_name)]
 cor_data$Batch2 <- mean_correlation_df$Batch[match(cor_data$Var2, mean_correlation_df$Sample_name)]
-ggplot(cor_data, aes(Batch2, value, fill=Batch2)) + geom_violin(alpha=.7) + facet_grid(~Batch1) + theme_minimal() +
-    ylab("pairwise sample correlation (r)") + xlab("Batch") + theme(panel.border=element_rect(color="black", fill=NA, linewidth=2))
+ggplot(cor_data, aes(Batch2, value, fill=Batch2)) + geom_violin(alpha=.7) + facet_wrap(~Batch1) + 
+    theme_minimal() +
+    geom_hline(yintercept=tukey_outlier_limit, linetype="dashed", color="red", linewidth=2) +
+    ylab("pairwise sample correlation (r)") + 
+    xlab("Batch") + 
+    theme(panel.border=element_rect(color="black", fill=NA, linewidth=2), axis.text.x=element_text(hjust=1, angle=90), text=element_text(size=18))
 ggsave(paste0(plot_out, "/Pairwise_correlations.across_batches.violin_plots.pdf"), width=15, height=15)
-fwrite(mean_correlation_df, args$correlation_summary_out, row.names=F, col.names=T, sep="\t"))
+fwrite(mean_correlation_df, args$correlation_summary_out, row.names=F, col.names=T, sep="\t")
 
 beta.mat.outliers_removed <- beta.mat[,!colnames(beta.mat) %in% correlation_outliers]
 B <- beta.mat.outliers_removed
 M <- log(B/(1-B))
 Mpcs <- pca(M)
-Mpcs$metadata <- data.frame(sample=colnames(beta.mat.outliers_removed), median_depth=median_depth[!colnames(beta.mat) %in% correlation_outliers])
+Mpcs$metadata <- data.frame(Sample_name=colnames(beta.mat.outliers_removed), median_depth=median_depth[!colnames(beta.mat) %in% correlation_outliers])
 biplot(Mpcs, lab=rownames(Mpcs$rotated))
 ggsave(paste0(plot_out, "/Global_Hidden_factors.PCA_biplot.pdf"))
 
@@ -102,7 +111,7 @@ if (!is.null(args$covariates)) {
     covariates <- fread(args$covariates)
     hidden_factor_df <- left_join(hidden_factor_df, covariates)
     if ("Batch" %in% colnames(covariates)) {
-        Mpcs$metadata$Batch <- covariates$Batch[match(rownames(Mpcs$metadata), covariates$Sample_name)]
+        Mpcs$metadata$Batch <- covariates$Batch[match(Mpcs$metadata$Sample_name, covariates$Sample_name)]
         biplot(Mpcs, lab=rownames(Mpcs$rotated), colby="Batch") + theme(legend.position="right")
         ggsave(paste0(plot_out, "/Global_Hidden_factors.PCA_biplot.pdf"), width=8)
     }
