@@ -15,6 +15,14 @@ parser <- add_argument(parser, "--min_abs_delta", help="MIN_ABS_DELTA threshold"
 parser <- add_argument(parser, "--min_abs_zscore", help="MIN_ABS_ZSCORE threhsold", type="numeric", default=3)
 argv <- parse_args(parser)
 
+argv <- NULL
+argv$outlier_files <- "../METAFORA_output/METAFORA.tissue_LCL.methylation_outliers.combined.tsv"
+argv$plot_dir_out <- "../METAFORA_output/summary_figures"
+argv$summary_out <- "../METAFORA_output/summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv"
+argv$covariates_files <- "../METAFORA_output/Global_Methylation_PCA_tissue_LCL/PCA_covariates.txt"
+argv$min_abs_delta <- 0.25
+argv$min_abs_zscore <- 3
+
 outlier_files <- unlist(strsplit(argv$outlier_files, ","))
 covariates_files <- NULL
 if(!is.null(argv$covariates_files)) {
@@ -58,13 +66,25 @@ for (i in 1:number_tissue) {
         outliers$Batch <- ""
     }
 
-    outliers %>% group_by(Sample_name, Batch, CHROM_TYPE) %>% summarize(hyper=sum(delta > 0), hypo=sum(delta < 0)) %>%
+    outliers %>% filter(CHROM_TYPE=="AUTOSOME") %>% group_by(Sample_name, Batch,CHROM_TYPE) %>% summarize(hyper=sum(delta > 0), hypo=sum(delta < 0)) %>%
         pivot_longer(c(hyper,hypo), names_to="direction", values_to="count") %>% 
         ggplot(aes(Batch, count, fill=direction)) + geom_boxplot(alpha=.8) + theme_minimal() + facet_wrap(~CHROM_TYPE) + 
-        theme(text=element_text(size=16), panel.border=element_rect(color="black",fill=NA,size=2))  + 
+        theme(text=element_text(size=16), panel.border=element_rect(color="black",fill=NA,size=2), axis.text.x = element_text(angle=25,hjust=1))  + 
         ylab("number of Methylation Outliers per genome") + 
-        scale_fill_manual(values=c("brown4", "cadetblue4")) + scale_y_log10()
-    ggsave(paste0(argv$plot_dir_out, "/Number_outliers_per_genome.box_plot.tissue_", this_tissue,".pdf"))
+        scale_fill_manual(values=c("brown4", "cadetblue4"))
+    ggsave(paste0(argv$plot_dir_out, "/Autosomes.number_outliers_per_genome.box_plot.tissue_", this_tissue,".pdf"))
+
+    if("sex" %in% colnames(outliers)) {
+        outliers %>% mutate(sex=ifelse(sex,"XY", "XX")) %>% 
+            filter(CHROM_TYPE=="SEX_CHROM") %>% 
+            group_by(seqnames, Sample_name, sex) %>% summarize(hyper=sum(delta>0), hypo=sum(delta < 0)) %>% 
+            pivot_longer(c(hyper,hypo), names_to="direction", values_to="count") %>% 
+            ggplot(aes(sex, count, fill=direction)) + geom_boxplot() + theme_minimal() +
+            facet_grid(~seqnames) + 
+            theme(panel.border=element_rect(fill=NA)) + ggtitle("Sex Chromosomes") +
+            scale_fill_manual(values=c("brown4", "cadetblue4"))
+        ggsave(paste0(argv$plot_dir_out,"/Sex_chromosomes.number_outliers_stratified_by_sex.box_plot.tissue_",this_tissue,".pdf"))
+    }
 
     ## Outlier counts per sample
     count_per_samp <- outliers %>% group_by(Sample_name, Batch) %>% summarize(n=n()) %>% ungroup() %>% arrange(n) %>% mutate(rank=1:length(n)) %>% 
@@ -80,7 +100,7 @@ for (i in 1:number_tissue) {
     ggplot2::ggsave(paste0(argv$plot_dir_out, "/Rank_order_number_outliers_per_genome.dot_plot.tissue_",this_tissue,".pdf"), height=21)
 
     ggplot(outliers, aes(abs(zscore),fill=Batch)) + geom_density(alpha=.1) + theme_minimal()
-    ggsave(paste0(argv$plot_dir_out,"zscore_distribution_across_batch.tissue_",this_tissue,".pdf"))
+    ggsave(paste0(argv$plot_dir_out,"/zscore_distribution_across_batch.tissue_",this_tissue,".pdf"))
 
     outlierlength <- outliers %>% mutate(length=end-start) %>% 
         ggplot(aes(length)) + geom_density(fill="chartreuse", alpha=.2) + scale_x_log10() + theme_minimal() +
@@ -138,7 +158,7 @@ outlier_counts <- outliers %>% group_by(Sample_name, CHROM_TYPE, Tissue) %>% sum
 ggplot(outlier_counts, aes(Tissue, total_outliers, fill=Tissue)) +
         geom_boxplot(alpha=.8) + theme_minimal() + facet_wrap(~CHROM_TYPE) + 
         theme(text=element_text(size=16), panel.border=element_rect(color="black",fill=NA,size=2))  + 
-        ylab("number of Methylation Outliers per genome") + 
+        ylab("number of Methylation Outliers per genome") + scale_y_log10() + 
         scale_fill_brewer(palette="Set3")
 ggsave(paste0(argv$plot_dir_out, "/Number_outliers_per_genome.box_plot.across_tissues.pdf"))
 fwrite(outlier_counts, argv$summary_out, col.names=T, row.names=F, sep="\t")
