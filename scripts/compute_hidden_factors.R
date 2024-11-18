@@ -41,7 +41,9 @@ median_depth <- colMedians(segment_depths)
 
 cor.mat <- cor(beta.mat)
 mean_cors <- rowMeans(cor.mat)
-tukey_outlier_limit <- quantile(mean_cors,.25) - 3*IQR(mean_cors) 
+
+#find tukey outlier limit. (if its too high set to 0.95 to avoid filtering too many samples)
+tukey_outlier_limit <- min(0.95, quantile(mean_cors,.25) - 3*IQR(mean_cors) )
 
 correlation_outliers <- names(which(mean_cors < tukey_outlier_limit))
 
@@ -151,15 +153,17 @@ if(args$sex_seg_beta != "SKIP" && args$sex_seg_depth != "SKIP") {
   sex_chrom_map[XX_index] <- "XX"
   sex_chrom_map[XY_index] <- "XY"
   XX_index != XY_index
+  XX_index
+  XY_index
 
   sex_chrom_copynumber$cluster_probability <- sapply(1:nrow(sex_chrom_copynumber), function(x) {cluster=sex_chrom_clustering$classification[x]; 
-                                                     pmvnorm(lower=as.numeric(sex_chrom_copynumber[x,2:3])-.25,
-                                                              upper=as.numeric(sex_chrom_copynumber[x,2:3])+.25, 
+                                                     pmvnorm(lower=as.numeric(sex_chrom_copynumber[x,2:3])-.5,
+                                                              upper=as.numeric(sex_chrom_copynumber[x,2:3])+.5, 
                                                               mean=sex_chrom_clustering$parameters$mean[,cluster], 
                                                               sigma=sex_chrom_clustering$parameters$variance$sigma[,,cluster])})
 
   sex_chrom_copynumber$sex <- sapply(sex_chrom_clustering$classification, function(x) sex_chrom_map[x])
-  sex_chrom_copynumber$sex[sex_chrom_copynumber$cluster_probability < .5] <- "ambiguous"
+  sex_chrom_copynumber$sex[sex_chrom_copynumber$cluster_probability < .8] <- "ambiguous"
 
   B <- sex_beta.mat
   M <- log(B/(1-B))

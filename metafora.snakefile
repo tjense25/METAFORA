@@ -137,7 +137,7 @@ rule pacbio_cpg_tools:
     time=4,
     mem=32
   input:
-    bam = lambda w: bam_map[w.sample],
+    bam = lambda w: input_map[w.sample],
     ref = lambda w: config["reference_fasta"]
   params:
     cpg_tools_command = config["pb_cpg_tools"]["bin"],

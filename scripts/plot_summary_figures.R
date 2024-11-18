@@ -15,14 +15,6 @@ parser <- add_argument(parser, "--min_abs_delta", help="MIN_ABS_DELTA threshold"
 parser <- add_argument(parser, "--min_abs_zscore", help="MIN_ABS_ZSCORE threhsold", type="numeric", default=3)
 argv <- parse_args(parser)
 
-argv <- NULL
-argv$outlier_files <- "../METAFORA_output/METAFORA.tissue_LCL.methylation_outliers.combined.tsv"
-argv$plot_dir_out <- "../METAFORA_output/summary_figures"
-argv$summary_out <- "../METAFORA_output/summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv"
-argv$covariates_files <- "../METAFORA_output/Global_Methylation_PCA_tissue_LCL/PCA_covariates.txt"
-argv$min_abs_delta <- 0.25
-argv$min_abs_zscore <- 3
-
 outlier_files <- unlist(strsplit(argv$outlier_files, ","))
 covariates_files <- NULL
 if(!is.null(argv$covariates_files)) {
@@ -58,12 +50,13 @@ for (i in 1:number_tissue) {
     outliers  <- fread(f)
     outliers %<>% dplyr::rename(Sample_name=ID) 
     covariates <- NULL
+    outliers$Batch <- "Full Cohort"
+    outliers$sex <- "NA"
     if(!is.null(covariates_files)) {
         covariates <- fread(covariates_files[i])
-        outliers %<>% left_join(covariates)
-    }
-    if (!"Batch" %in% colnames(outliers)) {
-        outliers$Batch <- ""
+        if ("Batch" %in% colnames(covariates)) {
+            outliers$Batch <- covariates$Batch[match(outliers$Sample_name, covariates$Sample_name)]
+        }
     }
 
     outliers %>% filter(CHROM_TYPE=="AUTOSOME") %>% group_by(Sample_name, Batch,CHROM_TYPE) %>% summarize(hyper=sum(delta > 0), hypo=sum(delta < 0)) %>%
@@ -74,7 +67,8 @@ for (i in 1:number_tissue) {
         scale_fill_manual(values=c("brown4", "cadetblue4"))
     ggsave(paste0(argv$plot_dir_out, "/Autosomes.number_outliers_per_genome.box_plot.tissue_", this_tissue,".pdf"))
 
-    if("sex" %in% colnames(outliers)) {
+    if("sex" %in% colnames(covariates)) {
+        outliers$sex <- covariates$sex[match(outliers$Sample_name, covariates$Sample_name)]
         outliers %>% mutate(sex=ifelse(sex,"XY", "XX")) %>% 
             filter(CHROM_TYPE=="SEX_CHROM") %>% 
             group_by(seqnames, Sample_name, sex) %>% summarize(hyper=sum(delta>0), hypo=sum(delta < 0)) %>% 
@@ -151,7 +145,7 @@ ggplot(combined_outliers, aes(delta, abs(zscore), shape=CHROM_TYPE, color=Tissue
     theme(text=element_text(size=16))
 ggsave(paste0(argv$plot_dir_out, "/Outlier_delta_zscore.volcano_plot.pdf"), width=number_tissue*6)
 
-outlier_counts <- outliers %>% group_by(Sample_name, CHROM_TYPE, Tissue) %>% summarize(total_outliers=n(), 
+outlier_counts <- combined_outliers %>% group_by(Sample_name, CHROM_TYPE, Tissue) %>% summarize(total_outliers=n(), 
                                                                                        number_hypo_outliers=sum(delta < 0 ),
                                                                                        number_hyper_outliers=sum(delta > 0))
 

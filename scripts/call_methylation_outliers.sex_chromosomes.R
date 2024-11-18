@@ -102,21 +102,26 @@ call_outliers <-function(cand.segs, betas, depth, sample_id, MIN_ABS_ZSCORE = 3,
   # aggregate betas across each segment
   region_beta <- as.matrix(((CpG_Identity %*% (betas.mat*depth.mat))+1) / ((CpG_Identity %*% depth.mat)+2))
   colnames(region_beta) <- colnames(betas.mat)
+
+  cand.segs$pop_median <- rowMedians(region_beta,na.rm=T)
   if (!is.null(covariates) && "Batch" %in% colnames(covariates)) {
       this_batch <- covariates$Batch[rownames(covariates) == sample_id]
-      cand.segs$pop_median <- rowMedians(matrix(region_beta[,covariates$Batch==this_batch],nrow=dim(region_beta)[1]),na.rm=T)
-  }
-  else {
-      cand.segs$pop_median <- rowMedians(region_beta,na.rm=T)
+      if(sum(covariates$Batch == this_batch) > 10) {
+          cand.segs$pop_median <- rowMedians(matrix(region_beta[,covariates$Batch==this_batch],nrow=dim(region_beta)[1]),na.rm=T)
+      }
   }
   cand.segs$delta <- region_beta[,sample_id] - cand.segs$pop_median
 
   B <- region_beta
   M <- log(B/(1-B))
-  Batch=NULL
+  Batch<-NULL
   if("Batch" %in% colnames(covariates)) {
-      Batch=covariates$Batch
+      Batch<-covariates$Batch
       covariates <- covariates %>% select(-Batch)
+
+      if ( (length(table(Batch)) < 2) || any(table(Batch) <= 5)) {
+          Batch <- NULL
+      }
   }
   M.corrected <- removeBatchEffect(M, batch=Batch, covariates=covariates)
   zscores <- t(scale(t(M.corrected)))
@@ -172,6 +177,7 @@ plot_outliers <- function(samp, cand.segs, meth.sample, z.mat, plot_dir) {
 
      zscore.plot <- tmp.meth.sample %>% filter(seg_id == this_seg) %>%
        ggplot(aes(start, zscore.smoothed)) + geom_point() + geom_line() + theme_classic() +
+       geom_hline(yintercept=0, linetype="dashed", color="grey70") + 
        geom_segment(data=as.data.frame(cand.segs[i,]),mapping=aes(x=start,xend=end,y=seg.mean,yend=seg.mean),color="red", linewidth=2) +
        ylab("population mean difference zscore") 
 

@@ -98,13 +98,16 @@ call_outliers <-function(cand.segs, betas, depth, sample_id, MIN_ABS_ZSCORE = 3,
   depth.mat[is.na(depth.mat)] <- 0
   # aggregate betas across each segment
   region_beta <- as.matrix(((CpG_Identity %*% (betas.mat*depth.mat))+1) / ((CpG_Identity %*% depth.mat)+2))
+  cand.segs$pop_median <- rowMedians(region_beta,na.rm=T)
+
   colnames(region_beta) <- colnames(betas.mat)
   if (!is.null(covariates) && "Batch" %in% colnames(covariates)) {
       this_batch <- covariates$Batch[rownames(covariates) == sample_id]
-      cand.segs$pop_median <- rowMedians(matrix(region_beta[,covariates$Batch==this_batch],nrow=dim(region_beta)[1]),na.rm=T)
-  }
-  else {
-      cand.segs$pop_median <- rowMedians(region_beta,na.rm=T)
+
+      #create batch specific profile only if batch group has more than 10 samples
+      if (sum(covariates$Batch == this_batch) > 10){
+          cand.segs$pop_median <- rowMedians(matrix(region_beta[,covariates$Batch==this_batch],nrow=dim(region_beta)[1]),na.rm=T)
+      }
   }
   cand.segs$delta <- region_beta[,sample_id] - cand.segs$pop_median
 
@@ -115,6 +118,12 @@ call_outliers <-function(cand.segs, betas, depth, sample_id, MIN_ABS_ZSCORE = 3,
   if(!is.null(covariates) && "Batch" %in% colnames(covariates)) {
       Batch=covariates$Batch
       covariates <- covariates %>% select(-Batch)
+
+      #if Batch only has 1 group or any Batch group has less than 4 individuals 
+      #(not big enough sample size to reliable correct batch effects) set batch to NULL
+      if((length(table(Batch)) < 2) || any(table(Batch) <= 5)) {
+          Batch=NULL
+      }
   }
   M.corrected <- removeBatchEffect(M, batch=Batch, covariates=covariates)
   zscores <- t(scale(t(M.corrected)))
@@ -228,8 +237,10 @@ main <- function(argv) {
     #make population mean specific to Batch to make less susceptible to batch effects:
     if(!is.null(argv$global_meth_pcs) && "Batch" %in% colnames(covariates))  {
         this_batch <- covariates$Batch[rownames(covariates) == this_sample]
-        tmp.bmat <- tmp.bmat[,covariates$Batch == this_batch]
-        tmp.dmat <- tmp.dmat[,covariates$Batch == this_batch]
+        if (sum(covariates$Batch==this_batch) > 10) {
+            tmp.bmat <- tmp.bmat[,covariates$Batch == this_batch]
+            tmp.dmat <- tmp.dmat[,covariates$Batch == this_batch]
+        }
     }
     pop_mean <- (rowSums(tmp.bmat*tmp.dmat) + rowSums(tmp.dmat > 0)) / (rowSums(tmp.dmat) + 2*rowSums(tmp.dmat > 0))
     pop_sd <- rowSds(tmp.bmat, na.rm=T)
