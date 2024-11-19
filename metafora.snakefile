@@ -241,8 +241,8 @@ rule compute_hidden_factors:
     sex_seg_depth = "SKIP" if SKIP_SEX_CHROMOSOME_ESTIMATION == "TRUE" else ','.join(list(expand(join(outdir,"Population_methylation.tissue_{{tissue}}/Meth_segments.tissue_{{tissue}}.segment_coverage.chrom_{chr}.mat"),chr=sex_chroms))),
     chrX_seqname =  chrX_seqname,
     chrY_seqname =  chrY_seqname,
-    covariates_arg = ("--covariates %s" % config["covariates"]) if "covariates" in config else "",
-    plot_out_dir = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/"),
+    covariates = config["covariates"] if "covariates" in config else "SKIP",
+    plot_out_dir = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/")
   output:
     global_pcs = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt"),
     cor_summary_table = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/Mean_pairwise_correlation_summary.txt"),
@@ -260,7 +260,7 @@ rule compute_hidden_factors:
         --plot_out_dir {params.plot_out_dir} \
         --chrX_seqname {params.chrX_seqname} \
         --chrY_seqname {params.chrY_seqname} \
-        {params.covariates_arg}
+        --covariates {params.covariates} 
   """
 
 rule call_outliers:
@@ -388,12 +388,13 @@ rule summary_plots:
     time=2,
     mem=24
   input:
-    expand(join(outdir, "METAFORA.tissue_{tissue}.methylation_outliers.combined.tsv"), tissue=unique_tissues)
+    outlier_bed = expand(join(outdir, "METAFORA.tissue_{tissue}.methylation_outliers.combined.tsv"), tissue=unique_tissues),
+    covariates = expand(join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt"),tissue=unique_tissues)
   params:
     script = "scripts/plot_summary_figures.R",
     plot_dir = join(outdir, "summary_figures"),
     outlier_files = ','.join(expand(join(outdir, "METAFORA.tissue_{tissue}.methylation_outliers.combined.tsv"), tissue=unique_tissues)),
-    covariates_arg = ("--covariates_files %s" % ','.join(expand(join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt"),tissue=unique_tissues))) if "covariates" in config else "",
+    covariates_files = ','.join(expand(join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt"),tissue=unique_tissues)),
     MIN_ABS_ZSCORE = MIN_ABS_ZSCORE, 
     MIN_ABS_DELTA = MIN_ABS_DELTA 
 
@@ -403,10 +404,10 @@ rule summary_plots:
   shell: """
     Rscript {params.script} \
       --outlier_files {params.outlier_files} \
+      --covariates_files {params.covariates_files} \
       --plot_dir_out {params.plot_dir} \
       --summary_out {output} \
       --min_abs_delta {params.MIN_ABS_DELTA} \
-      --min_abs_zscore {params.MIN_ABS_ZSCORE} \
-      {params.covariates_arg}
+      --min_abs_zscore {params.MIN_ABS_ZSCORE} 
   """
     

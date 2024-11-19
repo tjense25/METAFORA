@@ -62,7 +62,7 @@ ggsave(paste0(plot_out,"/Correlation_matrix.mean_cor_distribution.correlation_ou
 
 
 mean_correlation_df <- data.frame(Sample_name=colnames(segment_depths), mean_pairwise_correlation=mean_cors, median_depth)
-if (!is.null(args$covariates)) {
+if (!args$covariates=="SKIP") {
     covariates <- fread(args$covariates)
     mean_correlation_df %<>% left_join(covariates)
     if ("Batch" %in% colnames(mean_correlation_df)) {
@@ -83,7 +83,7 @@ if(!"Batch" %in% colnames(mean_correlation_df)) {
     mean_correlation_df$Batch <- "Full Cohort"
 }
 mean_correlation_df$outlier <- mean_correlation_df$Sample_name %in% correlation_outliers
-ggplot(mean_correlation_df, aes(median_depth, mean_pairwise_correlation, label=ifelse(outlier,Sample_name,""))) + geom_point() + theme_minimal() + geom_text_repel(color="Red") + 
+ggplot(mean_correlation_df, aes(median_depth, mean_pairwise_correlation, label=ifelse(outlier,Sample_name,""), color=Batch)) + geom_point() + theme_minimal() + geom_text_repel(color="Red") + 
     geom_hline(yintercept=tukey_outlier_limit, linetype="dashed", color="red")
 ggsave(paste0(plot_out,"/mean_pairwise_correlation.median_depth.scatter_plot.pdf"))
 cor_data$Batch1 <- mean_correlation_df$Batch[match(cor_data$Var1, mean_correlation_df$Sample_name)]
@@ -109,7 +109,7 @@ npcs <- findElbowPoint(Mpcs$variance)
 hidden_factor_df <- data.frame(Sample_name=rownames(Mpcs$rotated), depth=Mpcs$metadata$median_depth, Mpcs$rotated[,1:npcs])
 
 # add additional covariates if they are provided
-if (!is.null(args$covariates)) {
+if (!args$covariates=="SKIP") {
     covariates <- fread(args$covariates)
     hidden_factor_df <- left_join(hidden_factor_df, covariates)
     if ("Batch" %in% colnames(covariates)) {
