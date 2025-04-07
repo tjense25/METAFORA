@@ -13,7 +13,17 @@ parser <- add_argument(parser, "--summary_out", help="where to write summary tsv
 parser <- add_argument(parser, "--covariates_files", help="optional comma-separated list of covariates to plot data stratified by Batch", default=NULL)
 parser <- add_argument(parser, "--min_abs_delta", help="MIN_ABS_DELTA threshold", type="numeric", default=.25) 
 parser <- add_argument(parser, "--min_abs_zscore", help="MIN_ABS_ZSCORE threhsold", type="numeric", default=3)
+#argv <- NULL
+#argv$outlier_files <- "../METAFORA_output/METAFORA.tissue_Blood.methylation_outliers.combined.tsv"
+#argv$plot_dir_out <- "../METAFORA_output/summary_figures"
+#argv$covariates_files <- "../METAFORA_output/Global_Methylation_PCA_tissue_Blood/PCA_covariates.txt"
+#argv$min_abs_delta <- 0.25
+#argv$min_abs_zscore <- 3
 argv <- parse_args(parser)
+
+
+
+
 
 outlier_files <- unlist(strsplit(argv$outlier_files, ","))
 covariates_files <- NULL
@@ -66,6 +76,13 @@ for (i in 1:number_tissue) {
         ylab("number of Methylation Outliers per genome") + 
         scale_fill_manual(values=c("brown4", "cadetblue4"))
     ggsave(paste0(argv$plot_dir_out, "/Autosomes.number_outliers_per_genome.box_plot.tissue_", this_tissue,".pdf"))
+    outliers %>% filter(CHROM_TYPE=="AUTOSOME") %>% group_by(Sample_name, Batch,CHROM_TYPE) %>% summarize(hyper=sum(delta > 0), hypo=sum(delta < 0)) %>%
+        pivot_longer(c(hyper,hypo), names_to="direction", values_to="count") %>% 
+        ggplot(aes(Batch, count, fill=direction)) + geom_boxplot(alpha=.8) + theme_minimal() + facet_wrap(~CHROM_TYPE) + 
+        theme(text=element_text(size=16), panel.border=element_rect(color="black",fill=NA,size=2), axis.text.x = element_text(angle=25,hjust=1))  + 
+        ylab("number of Methylation Outliers per genome") + scale_y_log10()
+        scale_fill_manual(values=c("brown4", "cadetblue4"))
+    ggsave(paste0(argv$plot_dir_out, "/Autosomes.number_outliers_per_genome.box_plot.tissue_", this_tissue,"logscale_y.pdf"))
 
     if("sex" %in% colnames(covariates)) {
         outliers$sex <- covariates$sex[match(outliers$Sample_name, covariates$Sample_name)]

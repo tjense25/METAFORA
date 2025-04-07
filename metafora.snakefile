@@ -7,6 +7,7 @@ scratch = config["scratch_dir"]
 
 sample_table = pd.read_table(config["sample_table"])
 samples = sample_table['Sample_name'].to_list()
+sample_tissues = sample_table['Tissue'].to_list()
 tissue_dict=defaultdict(list)
 
 sample_tissue_map = { row.Sample_name : row.Tissue for i,row in sample_table.iterrows() }
@@ -71,7 +72,8 @@ if SKIP_SEX_CHROMOSOME_ESTIMATION in ["TRUE","T","True","true"]:
 
 rule all:
     input:
-      join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
+      expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues)
+      #join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
 
 rule create_cpg_reference:
     threads: 16
@@ -366,6 +368,7 @@ rule combine_chrom_outliers:
     cat {input.mats} | grep -v "$header" | grep -v "^$" >> {output.outlier_z_mat} || true
   """
 
+
 rule combine_outliers:
   threads: 1 
   resources:
@@ -411,3 +414,50 @@ rule summary_plots:
       --min_abs_zscore {params.MIN_ABS_ZSCORE} 
   """
     
+rule make_outlier_report:
+  threads: 1 
+  resources:
+    time=4,
+    mem=12
+  input:
+    outlier_bed = join(outdir,"sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.bed"),
+    outlier_z_mat = join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.zscore.mat"),
+    covariates = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt")
+
+  params:
+    annos = config["annotation_track_tsv"],
+    sample_table = config['sample_table'],
+    workdir = join(outdir, "sample_level_data/{sample}")
+  output:
+    report = join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html")
+  conda: 'envs/igv_report.yaml'
+  shell: """
+    if [ $(cat {input.outlier_bed} | wc -l) == 1]; then
+        create_report {input.outlier_bed} \
+            --genome hg38 \
+            --output {output.report}
+    else
+        # slop bed regions by 5000 for visualization
+        awk '{{$2=$2-5000; $3=$3+5000; print $0}}' {input.outlier_bed} | sed 's/ /\t/g' > {params.workdir}/tmp.outliers.tsv
+        awk 'NR>1{{print $1,$2,$3,$11,$14}}' {input.outlier_bed} | sed 's/ /\t/g' > {params.workdir}/tmp.outliers.bed
+
+        Rscript scripts/create_report_json.R --sample {wildcards.sample} \
+            --outlier_bed {params.workdir}/tmp.outliers.bed \
+            --outlier_tsv {params.workdir}/tmp.outliers.tsv \
+            --outlier_z_mat {input.outlier_z_mat} \
+            --covariates {input.covariates} \
+            --sample_table {params.sample_table} \
+            --annos {params.annos} \
+            --output_json {params.workdir}/tmp.track_config.json
+        
+        create_report {params.workdir}/tmp.outliers.tsv \
+            --genome hg38 \
+            --flanking 2000 \
+            --track-config {params.workdir}/tmp.track_config.json \
+            --info-columns seg_id num.mark pop_median delta zscore Tissue \
+            --sequence 1 --begin 2 --end 3 \
+            --output {output.report}
+
+        rm -f {params.workdir}/tmp*
+      fi
+  """

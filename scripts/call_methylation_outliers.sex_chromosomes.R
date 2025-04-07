@@ -85,7 +85,7 @@ segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this
   return(list("meth.sample"=meth.sample,"cand.segs"=cand.segs))
 }
 
-call_outliers <-function(cand.segs, betas, depth, sample_id, MIN_ABS_ZSCORE = 3, covariates=NULL) {
+call_outliers <-function(cand.segs, betas, depth, sample_id, MIN_ABS_ZSCORE = 3, covariates=NULL, original_col_names) {
   betas.gr <- makeGRangesFromDataFrame(betas)
   cands.gr <- makeGRangesFromDataFrame(cand.segs, keep.extra.columns = T)
   
@@ -134,7 +134,14 @@ call_outliers <-function(cand.segs, betas, depth, sample_id, MIN_ABS_ZSCORE = 3,
   zscores <- matrix(zscores, nrow=nrow(cand.segs), ncol=ncol(betas.mat))
   colnames(zscores) <- colnames(betas.mat)
   rownames(zscores) <- cand.segs$seg_id
-  return(list("outlier.segs"=cand.segs,"z.mat"=zscores))
+
+  # convert sex stratified subset matrix back to original matrix dimensions with NAs for non-sex-matching samples
+  zscores_original_dim <- matrix(NA, nrow=nrow(cand.segs), ncol=length(original_col_names))
+  colnames(zscores_original_dim) <- original_col_names
+  rownames(zscores_original_dim) <- cand.segs$seg_id
+  zscores_original_dim[,colnames(zscores)] <- zscores
+
+  return(list("outlier.segs"=cand.segs,"z.mat"=zscores_original_dim))
 }
 
 plot_outliers <- function(samp, cand.segs, meth.sample, z.mat, plot_dir) {
@@ -235,6 +242,7 @@ main <- function(argv) {
     ## Correct pop mean for specific batch
     cat("Correcting population mean for sample batch . . .\n")
     beta.mat <- as.matrix(betas[,4:ncol(betas)])
+    original_col_names <- colnames(beta.mat)
     depth.mat <- as.matrix(depths[,4:ncol(depths)])
     beta.mat[is.na(beta.mat)] <- 0
     depth.mat[is.na(depth.mat)] <- 0
@@ -275,7 +283,7 @@ main <- function(argv) {
     }
     # calculate region aggregated M values and call zscores across samples
     cat("Calculating region aggregated M values and zscores . . . \n")
-    outliers <- call_outliers(cand.segs, betas, depths, sample_id=this_sample, MIN_ABS_ZSCORE=MIN_ABS_ZSCORE, covariates=covariates)
+    outliers <- call_outliers(cand.segs, betas, depths, sample_id=this_sample, MIN_ABS_ZSCORE=MIN_ABS_ZSCORE, covariates=covariates, original_col_names=original_col_names)
     outlier.segs <- outliers[["outlier.segs"]]
     outlier_z_matrix <- outliers[["z.mat"]]
     outlier.segs

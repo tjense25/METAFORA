@@ -1,0 +1,11 @@
+name: igv_report
+channels:
+  - bioconda
+  - conda-forge
+  - r 
+dependencies:
+  - r-base
+  - r-argparser
+  - r-data.table
+  - r-jsonlite
+  - igv-reports
