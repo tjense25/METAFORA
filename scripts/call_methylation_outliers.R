@@ -16,9 +16,8 @@ library(matrixStats)
 parser <- arg_parser("Calculate and segment per sample zscore")
 parser <- add_argument(parser, "--sample", help="sample to parse and detect outliers in")
 parser <- add_argument(parser, "--tissue", help="tissue this sample was sequenced from")
-parser <- add_argument(parser, "--chrom", help="chromosome to call outliers on")
-parser <- add_argument(parser, "--beta_mat", help="input sample beta matrix")
-parser <- add_argument(parser, "--depth_mat", help="input sample depth matrix")
+parser <- add_argument(parser, "--beta_mats", help="input sample beta matrix")
+parser <- add_argument(parser, "--depth_mats", help="input sample depth matrix")
 parser <- add_argument(parser, "--global_meth_pcs", help="output global methylation PCs")
 parser <- add_argument(parser, "--outlier_bed", help="output global methylation region bed with zscores to this file")
 parser <- add_argument(parser, "--outlier_z_mat", help="output outlier_region x samples matrix of zscores to this file")
@@ -27,6 +26,9 @@ parser <- add_argument(parser, "--min_abs_zscore", help="minimum absolute zscore
 parser <- add_argument(parser, "--min_seg_size", help="minimum number of cpgs in a region to call a candidate outlier during segmentation", type="integer", default=20)
 parser <- add_argument(parser, "--min_abs_delta", help="minimum effect size delta (sample_average_methylation - population_median_methylation) for calling methylation region an outlier", type="numeric", default=0.25)
 parser <- add_argument(parser, "--max_depth", help="maxmimum depth of read coverage to consider. (regions higher than this depth will be effectively downsampled)", type="integer", default=30)
+parser <- add_argument(parser, "--chrX_seqname", help="seqname for X chromosome in reference (or Z chromosome for birds)")
+parser <- add_argument(parser, "--chrY_seqname", help="seqname for Y chromosome in reference (or W chromosome for birds )")
+
  
 argv <- parse_args(parser)
 
