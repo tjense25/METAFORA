@@ -1,5 +1,5 @@
-Sample_name	Tissue	Technology	Methylation_input
-Sample1	Blood	ONT	/data/ONT_Bams/Sample1.GRCh38.ONT.methlyated.bam
-Sample2	Blood	PacBio	/data/PacBio_Bams/Sample2.GRCh38.PacBio.methylated.bam
-Sample3	Blood	PacBio	/data/PacBio_Bams/Sample3.GRCh38.PacBio.methylated.bam
-Sample4	Blood	Metafora	/data/Methylation_formatted/Sample4.GRCh38.METAFORA_formatted.cpg_methylation.bed.gz
+Sample_name	Tissue	Technology	Phased	Methylation_input
+Sample1	Blood	ONT	TRUE	/data/ONT_Bams/Sample1.GRCh38.ONT.methlyated.bam
+Sample2	Blood	PacBio	TRUE	/data/PacBio_Bams/Sample2.GRCh38.PacBio.methylated.bam
+Sample3	Blood	PacBio	TRUE	/data/PacBio_Bams/Sample3.GRCh38.PacBio.methylated.bam
+Sample4	Blood	Metafora	FALSE	/data/Methylation_formatted/Sample4.GRCh38.METAFORA_formatted.cpg_methylation.bed.gz

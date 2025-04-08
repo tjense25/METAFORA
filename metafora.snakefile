@@ -11,9 +11,14 @@ samples = sample_table['Sample_name'].to_list()
 sample_tissues = sample_table['Tissue'].to_list()
 tissue_dict=defaultdict(list)
 
+phased_bam = defaultdict(lambda: False)
 sample_tissue_map = { row.Sample_name : row.Tissue for i,row in sample_table.iterrows() }
 technology_map = { row.Sample_name : row.Technology for i,row in sample_table.iterrows() }
 input_map = { row.Sample_name : row.Methylation_input for i,row in sample_table.iterrows()}
+if "Phased" in sample_table.columns:
+  for i,row in sample_table.iterrows():
+    phased_bam[row.Sample_name] = (row.Phased.str.upper() in ["TRUE", "T"])
+
 for sample,tissue in sample_tissue_map.items():
   tissue_dict[tissue].append(sample)
 
@@ -73,7 +78,8 @@ if SKIP_SEX_CHROMOSOME_ESTIMATION in ["TRUE","T","True","true",True]:
 
 rule all:
     input:
-      expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues)
+      expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_Blood.METAFORA.outlier_regions.haplotype_annotated.bed"),sample=["MO_B01", "MO_C01", "MO_D01", "MO_E01"]),
+      #expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues)
       #join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
 
 rule create_cpg_reference:
@@ -134,6 +140,44 @@ rule format_modBam2Bed:
       tabix -p bed -S 1 {output.meth_bed}
     """
 
+rule modBam2Bed_HP:
+    threads: 4
+    resources:
+        mem=32,
+        time=12
+    input:
+        bam = lambda w: input_map[w.sample],
+        ref = config["reference_fasta"]
+    output:
+        meth_bed = join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_{hp}.tech_ONT.cpg_methylation.bed.gz"),
+        tbi = join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_{hp}.tech_ONT.cpg_methylation.bed.gz.tbi")
+    conda: 'envs/methylation.yaml'
+    shell: """
+        modbam2bed -t {threads} --cpg --combine -m 5mC -d 40 --haplotype={wildcards.hp} {input.ref} {input.bam} | bgzip > {output.meth_bed}
+        tabix {output.meth_bed}
+    """
+
+
+rule format_modBam2Bed_HP:
+    threads: 16
+    resources:
+      time=4,
+      mem=128
+    input:
+      join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_{hp}.tech_ONT.cpg_methylation.bed.gz")
+    params:
+      script = "scripts/format_modBam2Bed.R",
+      meth_bed = join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_{hp}.tech_ONT.METAFORA_formatted.cpg_methylation.bed")
+    output:
+      meth_bed = join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_{hp}.tech_ONT.METAFORA_formatted.cpg_methylation.bed.gz"),
+      tbi = join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_{hp}.tech_ONT.METAFORA_formatted.cpg_methylation.bed.gz.tbi")
+    conda: 'envs/metafora.yaml'
+    shell: """
+      Rscript {params.script} --input {input} --output {params.meth_bed}
+      bgzip {params.meth_bed}
+      tabix -p bed -S 1 {output.meth_bed}
+    """
+
 rule pacbio_cpg_tools:
   threads: 16
   resources:
@@ -145,7 +189,8 @@ rule pacbio_cpg_tools:
   params:
     prefix = join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.cpg_methylation"),
   output:
-    meth_bed = join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.cpg_methylation.combined.bed.gz")
+    join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.cpg_methylation.combined.bed.gz"),
+    #lambda w:  "" if not phased_bam[w.sample] else ["sample_level_data/{sample}/{sample}.tech_PacBio.cpg_methylation.hap1.bed.gz", "sample_level_data/{sample}/{sample}.tech_PacBio.cpg_methylation.hap2.bed.gz"]
   conda: "envs/pb_cpg_tools.yaml"
   shell: """
     aligned_bam_to_cpg_scores \
@@ -168,6 +213,27 @@ rule format_pacbio:
   output:
     meth_bed = join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.METAFORA_formatted.cpg_methylation.bed.gz"),
     tbi = join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.METAFORA_formatted.cpg_methylation.bed.gz.tbi")
+  conda: 'envs/methylation.yaml'
+  shell: """ 
+    echo -e "chromosome\tstart\tend\tdepth\tbeta" > {params.tmp_bed}
+    zcat {input} | grep -v "^#" | awk '{{print $1,$2,$3,$6,($9/100)}}' | sed 's/ /\t/g' >> {params.tmp_bed} 
+
+    bgzip {params.tmp_bed} 
+    tabix -p bed -S 1 {output.meth_bed}
+  """
+
+rule format_pacbio_hap:
+  threads: 1 
+  resources:
+    time=4,
+    mem=24
+  input:
+    join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.cpg_methylation.hap{hp}.bed.gz")
+  params:
+    tmp_bed = join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.METAFORA_formatted.cpg_methylation.hap{hp}.bed")
+  output:
+    meth_bed = join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_{hp}.tech_PacBio.METAFORA_formatted.cpg_methylation.bed.gz"),
+    tbi = join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_{hp}.tech_PacBio.METAFORA_formatted.cpg_methylation.bed.gz.tbi")
   conda: 'envs/methylation.yaml'
   shell: """ 
     echo -e "chromosome\tstart\tend\tdepth\tbeta" > {params.tmp_bed}
@@ -430,7 +496,29 @@ rule summary_plots:
       --min_abs_delta {params.MIN_ABS_DELTA} \
       --min_abs_zscore {params.MIN_ABS_ZSCORE} 
   """
-    
+
+rule annotate_haplotype_delta:
+  threads: 1 
+  resources:
+    time=4,
+    mem=48
+  input:
+    outlier_bed = join(outdir,"sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.bed"),
+    combined_bed = lambda w: join(outdir, "sample_level_data/{sample}/{sample}.tech_" + technology_map[w.sample] + ".METAFORA_formatted.cpg_methylation.bed.gz"),
+    hap1_bed = lambda w: join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_1.tech_" + technology_map[w.sample] + ".METAFORA_formatted.cpg_methylation.bed.gz"),
+    hap2_bed = lambda w: join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_2.tech_" + technology_map[w.sample] + ".METAFORA_formatted.cpg_methylation.bed.gz")
+  output:
+    annotated_bed = join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.haplotype_annotated.bed")
+  conda: 'envs/metafora.yaml'
+  shell: """
+    Rscript scripts/annotate_haplotype_methylation.R \
+        --outlier_bed {input.outlier_bed} \
+        --combined {input.combined_bed} \
+        --hap1 {input.hap1_bed} \
+        --hap2 {input.hap2_bed} \
+        --annotated_out {output.annotated_bed}
+  """
+
 rule make_outlier_report:
   threads: 1 
   resources:

@@ -90,7 +90,7 @@ for (this_control in control_samples) {
              colorBy="basemod2",
              groupBy="tag:HP",
              url=sample_table$Methylation_input[sample_table$Sample_name==this_control],
-             height=250
+             height=150
         )))
 }
 if (is.null(annos$color)) annos$color  <- rainbow(nrow(annos))
