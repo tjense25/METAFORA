@@ -40,8 +40,6 @@ if(nrow(outlier_z_mat) > 100) {
     fwrite(outlier_bed, file=argv$outlier_bed, sep="\t", col.names=F) #overwrite outlier bed
 }
 
-
-this_batch
 # Select 3 control samples to compare what "normal" methylation looks like
 ## choose samples from same batch / technology 
 if ("Batch" %in% colnames(covariates)) {

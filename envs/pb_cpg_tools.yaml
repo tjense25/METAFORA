@@ -1,0 +1,5 @@
+name: pbcpgtools
+channels:
+  - bioconda
+dependencies:
+  - pb-cpg-tools

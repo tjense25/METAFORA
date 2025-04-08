@@ -7,6 +7,7 @@ scratch = config["scratch_dir"]
 
 sample_table = pd.read_table(config["sample_table"])
 samples = sample_table['Sample_name'].to_list()
+
 sample_tissues = sample_table['Tissue'].to_list()
 tissue_dict=defaultdict(list)
 
@@ -65,7 +66,7 @@ if len(sex_chroms) != 2 or chrX_seqname == "SKIP" or chrY_seqname == "SKIP":
   SKIP_SEX_CHROMOSOME_ESTIMATION = "TRUE"
   sex_chroms = []
 
-if SKIP_SEX_CHROMOSOME_ESTIMATION in ["TRUE","T","True","true"]:
+if SKIP_SEX_CHROMOSOME_ESTIMATION in ["TRUE","T","True","true",True]:
   print("Skipping sex chromosome copy number estimation and outlier calling")
   SKIP_SEX_CHROMOSOME_ESTIMATION = "TRUE"
   sex_chroms=[]
@@ -142,17 +143,14 @@ rule pacbio_cpg_tools:
     bam = lambda w: input_map[w.sample],
     ref = lambda w: config["reference_fasta"]
   params:
-    cpg_tools_command = config["pb_cpg_tools"]["bin"],
-    model = config["pb_cpg_tools"]["model"],
     prefix = join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.cpg_methylation"),
   output:
-    meth_bed = join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.cpg_methylation.combined.bed")
+    meth_bed = join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.cpg_methylation.combined.bed.gz")
+  conda: "envs/pb_cpg_tools.yaml"
   shell: """
-    {params.cpg_tools_command} \
+    aligned_bam_to_cpg_scores \
         --bam {input.bam} \
         --output-prefix {params.prefix} \
-        --model {params.model} \
-        --pileup-mode model \
         --modsites-mode reference \
         --ref {input.ref} \
         --threads {threads}
@@ -164,7 +162,7 @@ rule format_pacbio:
     time=4,
     mem=24
   input:
-    join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.cpg_methylation.combined.bed")
+    join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.cpg_methylation.combined.bed.gz")
   params:
     tmp_bed = join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.METAFORA_formatted.cpg_methylation.bed")
   output:
@@ -173,7 +171,7 @@ rule format_pacbio:
   conda: 'envs/methylation.yaml'
   shell: """ 
     echo -e "chromosome\tstart\tend\tdepth\tbeta" > {params.tmp_bed}
-    awk '{{print $1,$2,$3,$6,($9/100)}}' {input} | sed 's/ /\t/g' >> {params.tmp_bed} 
+    zcat {input} | grep -v "^#" | awk '{{print $1,$2,$3,$6,($9/100)}}' | sed 's/ /\t/g' >> {params.tmp_bed} 
 
     bgzip {params.tmp_bed} 
     tabix -p bed -S 1 {output.meth_bed}
@@ -227,6 +225,25 @@ rule create_tissue_sample_reference:
     tabix -p bed -S 1 {output.mean}
   """
 
+#rule append_samples_to_reference:
+#  threads: 1
+#  resources:
+#    time=24,
+#    mem=128 
+#  input: 
+#    meth_beds = get_input_samples,
+#    reference_beta_mat = config["sample_reference"]["beta_mat"],
+#    reference_depth_mat = config["sample_reference"]["depth_mat"]
+#  output:
+#    beta_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.betas.mat.gz"),
+#    beta_tbi = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.betas.mat.gz.tbi"),
+#    depth_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.coverage.mat.gz"),
+#    depth_tbi = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.coverage.mat.gz.tbi"),
+#    mean = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.population_mean_betas.tsv.gz"),
+#    mean_tbi = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.population_mean_betas.tsv.gz.tbi"),
+#    seg_beta = join(outdir,"Population_methylation.tissue_{tissue}/Meth_segments.tissue_{tissue}.segment_betas.chrom_{chr}.bed"),
+#    seg_depth = join(outdir,"Population_methylation.tissue_{tissue}/Meth_segments.tissue_{tissue}.segment_coverage.chrom_{chr}.mat")
+
 rule compute_hidden_factors:
   threads: 16
   resources:
@@ -269,7 +286,7 @@ rule call_outliers:
   threads: 4
   resources:
     time=16,
-    mem=128
+    mem=64
   input:
     beta_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.betas.mat.gz"),
     depth_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.coverage.mat.gz"),

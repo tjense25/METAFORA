@@ -13,8 +13,4 @@ params:
 reference_fasta: /references/GRCH38/GRCh38_no_alt_analysis_set_GCA_000001405.15.fasta
 reference_seqnames_table: ./GRCh38_ref_seqnames_table.txt
 
-pb_cpg_tools: 
-  bin: /tools/pb_tools/pb-CpG-tools-v2.3.2-x86_64-unknown-linux-gnu/bin/aligned_bam_to_cpg_scores
-  model: /tools/pb_tools/pb-CpG-tools-v2.3.2-x86_64-unknown-linux-gnu/models/pileup_calling_model.v1.tflite
-
-annotation_track_tsv: "metafora_grch38_annos.tsv"
+annotation_track_tsv: "metafora_grch38_report_annotations.tsv"
