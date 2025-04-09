@@ -17,7 +17,7 @@ technology_map = { row.Sample_name : row.Technology for i,row in sample_table.it
 input_map = { row.Sample_name : row.Methylation_input for i,row in sample_table.iterrows()}
 if "Phased" in sample_table.columns:
   for i,row in sample_table.iterrows():
-    phased_bam[row.Sample_name] = (row.Phased.str.upper() in ["TRUE", "T"])
+    phased_bam[row.Sample_name] = (str(row.Phased).upper() in ["TRUE", "T"])
 
 for sample,tissue in sample_tissue_map.items():
   tissue_dict[tissue].append(sample)
@@ -78,8 +78,8 @@ if SKIP_SEX_CHROMOSOME_ESTIMATION in ["TRUE","T","True","true",True]:
 
 rule all:
     input:
-      expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_Blood.METAFORA.outlier_regions.haplotype_annotated.bed"),sample=["MO_B01", "MO_C01", "MO_D01", "MO_E01"]),
       #expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues)
+      expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=["MO_B01","MO_C01","MO_D01","MO_E01"], tissue=sample_tissues)
       #join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
 
 rule create_cpg_reference:
@@ -525,44 +525,37 @@ rule make_outlier_report:
     time=4,
     mem=12
   input:
-    outlier_bed = join(outdir,"sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.bed"),
+    outlier_bed = lambda w: join(outdir,"sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions" + (".haplotype_annotated.bed" if phased_bam[w.sample] else ".bed")),
     outlier_z_mat = join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.zscore.mat"),
     covariates = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt")
-
   params:
     annos = config["annotation_track_tsv"],
     sample_table = config['sample_table'],
-    workdir = join(outdir, "sample_level_data/{sample}")
+    tmp_bed_out = join(outdir, "sample_level_data/{sample}/tmp.outliers.bed"),
+    tmp_tsv_out = join(outdir, "sample_level_data/{sample}/tmp.outliers.tsv"),
+    tmp_config_json = join(outdir, "sample_level_data/{sample}/tmp.track_config.json")
   output:
     report = join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html")
   conda: 'envs/igv_report.yaml'
   shell: """
-    if [ $(cat {input.outlier_bed} | wc -l) == 1]; then
-        create_report {input.outlier_bed} \
-            --genome hg38 \
-            --output {output.report}
-    else
-        # slop bed regions by 5000 for visualization
-        awk '{{$2=$2-5000; $3=$3+5000; print $0}}' {input.outlier_bed} | sed 's/ /\t/g' > {params.workdir}/tmp.outliers.tsv
-        awk 'NR>1{{print $1,$2,$3,$11,$14}}' {input.outlier_bed} | sed 's/ /\t/g' > {params.workdir}/tmp.outliers.bed
-
-        Rscript scripts/create_report_json.R --sample {wildcards.sample} \
-            --outlier_bed {params.workdir}/tmp.outliers.bed \
-            --outlier_tsv {params.workdir}/tmp.outliers.tsv \
+        Rscript scripts/create_report_json.R \
+            --sample {wildcards.sample} \
+            --outlier_bed {input.outlier_bed} \
             --outlier_z_mat {input.outlier_z_mat} \
             --covariates {input.covariates} \
             --sample_table {params.sample_table} \
             --annos {params.annos} \
-            --output_json {params.workdir}/tmp.track_config.json
+            --output_bed {params.tmp_bed_out} \
+            --output_tsv {params.tmp_tsv_out} \
+            --output_json {params.tmp_config_json}
         
-        create_report {params.workdir}/tmp.outliers.tsv \
+        create_report {params.tmp_tsv_out} \
             --genome hg38 \
             --flanking 2000 \
-            --track-config {params.workdir}/tmp.track_config.json \
-            --info-columns seg_id num.mark pop_median delta zscore Tissue \
+            --track-config {params.tmp_config_json} \
+            --info-columns seg_id coordinates num.mark pop_median delta zscore combined_depth haplotype_coverage_bias hap_delta Tissue \
             --sequence 1 --begin 2 --end 3 \
             --output {output.report}
 
-        rm -f {params.workdir}/tmp*
-      fi
+        rm -f {params.tmp_bed_out} {params.tmp_tsv_out} {params.tmp_config_json}
   """

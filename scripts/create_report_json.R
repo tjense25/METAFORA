@@ -5,39 +5,46 @@ library(data.table)
 parser <- arg_parser("Create json track config file for igv-reports from Metafora output")
 parser <- add_argument(parser, "--sample", help="sample name")
 parser <- add_argument(parser, "--outlier_bed", help="bed file of outliers for sample")
-parser <- add_argument(parser, "--outlier_tsv", help="bed file of outliers for sample")
 parser <- add_argument(parser, "--outlier_z_mat", help="matrix of zscores across all samples")
 parser <- add_argument(parser, "--covariates", help="covariates matrix of z scores across outliers")
 parser <- add_argument(parser, "--sample_table", help="sample table with bam paths to create paths")
 parser <- add_argument(parser, "--annos", help="additional annotation track annotations to add to report")
+parser <- add_argument(parser, "--output_bed", help="where to write tmp outlier bed")
+parser <- add_argument(parser, "--output_tsv", help="where to write tmp outlier tsv")
 parser <- add_argument(parser, "--output_json", help="where to write output track json config file")
-
 argv <- parse_args(parser)
-#argv <- NULL
-#argv$sample <- "UDN334094"
-#argv$outlier_bed <- "../METAFORA_output/sample_level_data/UDN334094/tmp.outliers.bed"
-#argv$outlier_tsv <- "../METAFORA_output/sample_level_data/UDN334094/tmp.outliers.tsv"
-#argv$outlier_z_mat <- "../METAFORA_output/sample_level_data/UDN334094/UDN334094.tissue_Fibroblast.METAFORA.outlier_regions.zscore.mat"
-#argv$covariates <- "../METAFORA_output/Global_Methylation_PCA_tissue_Fibroblast/PCA_covariates.txt"
-#argv$sample_table <- "../U08_GREGoR.input_table.txt"
-#argv$annos <- "../metafora_grch38_report_annotations.tsv"
+
 this_sample <- argv$sample
 
-outlier_tsv <- fread(argv$outlier_tsv)
-outlier_bed <- fread(argv$outlier_bed)
+if(file.info(argv$outlier_bed)$size == 0) {
+    fwrite(NULL, argv$output_bed)
+    fwrite(NULL, argv$output_tsv)
+    fwrite(NULL, argv$output_json)
+    quit(save = "no")
+}
+
+outliers <- fread(argv$outlier_bed)
 outlier_z_mat <- read.table(argv$outlier_z_mat, row.names=1)
 covariates <- fread(argv$covariates)
 sample_table <- fread(argv$sample_table)
 annos <- fread(argv$annos)
 
+if(is.null(outliers$hap_delta)) {
+  outliers$haplotype_coverage_bias <- NA
+  outliers$hap_delta <- NA
+}
+
+outliers$coordinates <- paste0(outliers$seqnames,":",outliers$start,"-",outliers$end)
+out_bed <- outliers[,c("seqnames","start","end","seg_id","zscore")]
+outliers$start <- outliers$start - 4000
+outliers$end <- outliers$end + 4000
+
 #only make report for top 100 outliers if more than a hundo
 if(nrow(outlier_z_mat) > 100) {
-    top_outliers <- order(abs(outlier_z_mat[,this_sample]))[1:100]
-    outlier_z_mat <- outlier_z_mat[top_outliers,]
-    outlier_bed <- outlier_bed[top_outliers,]
-    outlier_tsv <- outlier_tsv[top_outliers,]
-    fwrite(outlier_tsv, file=argv$outlier_tsv, sep="\t") #overwrite outlier tsv
-    fwrite(outlier_bed, file=argv$outlier_bed, sep="\t", col.names=F) #overwrite outlier bed
+    top_outliers <- order(abs(outlier_z_mat[,this_sample]), decreasing=T)[1:100]
+    outlier_z_mat <- outlier_z_mat[1:nrow(outlier_z_mat) %in% top_outliers,]
+    outliers <- outliers[1:nrow(outliers) %in% top_outliers,]
+    out_bed <- out_bed[1:nrow(out_bed) %in% top_outliers,]
 }
 
 # Select 3 control samples to compare what "normal" methylation looks like
@@ -54,6 +61,7 @@ if ("sex" %in% colnames(covariates)) {
 # if not enough Batch/Sex matched samples to pool from, pool from all samples instead 
 if (is.null(ncol(outlier_z_mat)) || ncol(outlier_z_mat) <= 4) {
    outlier_z_mat <- read.table(argv$outlier_z_mat, row.names=1) 
+   outlier_z_mat <- outlier_z_mat[outliers$seg_id,]
 }
 
 #choose samples that are not themselves outliers over defined regions
@@ -71,7 +79,7 @@ control_samples <- names(min_abs_sums[order(min_abs_sums)][1:3])
 json_out <- list( 
     list( #outlier table
         name = "Methylation Outliers",
-        url = argv$outlier_bed,
+        url = argv$output_bed,
         height = 40
     ),
     list( #outlier sample bam
@@ -107,8 +115,5 @@ for (i in 1:nrow(annos)) {
 
 json_out <- toJSON(json_out, pretty=TRUE, auto_unbox=T)
 write(json_out, file=argv$output_json)
-
-
-
-
-
+fwrite(out_bed, file=argv$output_bed, sep="\t", col.names=F)
+fwrite(outliers,file=argv$output_tsv, sep="\t")
