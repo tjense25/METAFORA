@@ -78,9 +78,9 @@ if SKIP_SEX_CHROMOSOME_ESTIMATION in ["TRUE","T","True","true",True]:
 
 rule all:
     input:
-      #expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues)
-      expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=["MO_B01","MO_C01","MO_D01","MO_E01"], tissue=sample_tissues)
-      #join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
+      #expand(join(outdir, "sample_level_data/{sample}/{sample}.chrX_inactivation_skew.summary_dat.txt"), sample=samples),
+      expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues),
+      join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
 
 rule create_cpg_reference:
     threads: 16
@@ -228,16 +228,17 @@ rule format_pacbio_hap:
     time=4,
     mem=24
   input:
-    join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.cpg_methylation.hap{hp}.bed.gz")
+    join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.cpg_methylation.combined.bed.gz")
   params:
-    tmp_bed = join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.METAFORA_formatted.cpg_methylation.hap{hp}.bed")
+    hp_bed = join(outdir, "sample_level_data/{sample}/{sample}.tech_PacBio.cpg_methylation.hap{hp}.bed.gz"),
+    tmp_bed = join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_{hp}.tech_PacBio.METAFORA_formatted.cpg_methylation.bed")
   output:
     meth_bed = join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_{hp}.tech_PacBio.METAFORA_formatted.cpg_methylation.bed.gz"),
     tbi = join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_{hp}.tech_PacBio.METAFORA_formatted.cpg_methylation.bed.gz.tbi")
   conda: 'envs/methylation.yaml'
   shell: """ 
     echo -e "chromosome\tstart\tend\tdepth\tbeta" > {params.tmp_bed}
-    zcat {input} | grep -v "^#" | awk '{{print $1,$2,$3,$6,($9/100)}}' | sed 's/ /\t/g' >> {params.tmp_bed} 
+    zcat {params.hp_bed} | grep -v "^#" | awk '{{print $1,$2,$3,$6,($9/100)}}' | sed 's/ /\t/g' >> {params.tmp_bed} 
 
     bgzip {params.tmp_bed} 
     tabix -p bed -S 1 {output.meth_bed}
@@ -517,6 +518,30 @@ rule annotate_haplotype_delta:
         --hap1 {input.hap1_bed} \
         --hap2 {input.hap2_bed} \
         --annotated_out {output.annotated_bed}
+  """
+
+rule calculate_X_skew:
+  threads: 1 
+  resources:
+    time=4,
+    mem=48
+  input:
+    combined_bed = lambda w: join(outdir, "sample_level_data/{sample}/{sample}.tech_" + technology_map[w.sample] + ".METAFORA_formatted.cpg_methylation.bed.gz"),
+    hap1_bed = lambda w: join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_1.tech_" + technology_map[w.sample] + ".METAFORA_formatted.cpg_methylation.bed.gz"),
+    hap2_bed = lambda w: join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_2.tech_" + technology_map[w.sample] + ".METAFORA_formatted.cpg_methylation.bed.gz")
+  params:
+    X_bed = config["chrX_inactivation_regions"]
+  output:
+    join(outdir, "sample_level_data/{sample}/{sample}.chrX_inactivation_skew.summary_dat.txt")
+  conda: 'envs/metafora.yaml'
+  shell: """
+    Rscript scripts/calculate_X_skew.R \
+        --sample {wildcards.sample} \
+        --X_region_bed {params.X_bed} \
+        --combined {input.combined_bed} \
+        --hap1 {input.hap1_bed} \
+        --hap2 {input.hap2_bed} \
+        --out_tsv {output}
   """
 
 rule make_outlier_report:
