@@ -58,21 +58,22 @@ Metafora was designed to be run parrallelized across many jobs on a slurm contro
 ### Input
 Input paths are supplied to the workflow in a tsv file provided in the `sample_table:` directive of the config file. An example input table is included: `example_input.sample_table.txt`
 
-Input table is expected to have the following 4 columns: 
+Input table is expected to have the following 5 columns: 
 * `Sample_name` (Unique sample ID)
 * `Tissue` (Name of tissue this sample was sequenced from i.e. WholeBlood, PBMC, LCL, Fibroblast, Brain, etc.)
 * `Technology` (Long read methylation input type. Currently can be one of 3 values: [**PacBio**, **ONT**, **Metafora**]).
+* `Phased` (**optional**, TRUE or FALSE if the bam input sample is phased. Used to annotate outliers with haplotype differences. Default is False)
 * `Input_file` (Path to input file corresponding to input type)
 
 ```
-Sample_name  Tissue  Technology  Methylation_input
-SampleA  WholeBlood  ONT  /path/to/SampleA.ONT.bam
-SampleB WholeBlood PacBio /path/to/SampleB.PacBio.bam
-SampleC Brain Metafora /path/to/SampleC.methylation.METAFORA_formatted.bed.gz
+Sample_name  Tissue  Technology  Phased Methylation_input
+SampleA  WholeBlood  ONT  TRUE /path/to/SampleA.ONT.bam
+SampleB WholeBlood PacBio TRUE /path/to/SampleB.PacBio.bam
+SampleC Brain Metafora FALSE /path/to/SampleC.methylation.METAFORA_formatted.bed.gz
 ```
 
 #### Input Types
-For **PacBio**, expected input is a methylated bam file. As part of pre-processing, Metafora will run cpg-tools to get a methylation bed file and properly format this file for downstream analyses. For PacBio preprocessing, a path to a static binary of cpg-tools and a downloaded CpG methylation model must be downloaded and included in the config file under the `pb_cpg_tools:` directive. These can be downloaded from pb_cpg_tools github page. 
+For **PacBio**, expected input is a methylated bam file. As part of pre-processing, Metafora will run cpg-tools to get a methylation bed file and properly format this file for downstream analyses.
 
 For **ONT**, expected input is a methylated bam file. As part of pre-processing, Metafora will run modBam2Bed on the methylated file to generate a bed file of methylation proportions. **ONT** is specified for nanopore genomes where methylation has been called with guppy or dorado and methylation is stored in the Bam file as MM/ML tags. For nanopolish called ONT methylation you must manually format to be consistent with the **Metafora** input type.
 
@@ -136,6 +137,16 @@ chr20 31546859 31548400 49 * SampleA 49 5.74149646908452 1727 1775 chr20_SampleA
 * `delta` is the effect size difference of the methylation outlier in this sample. How much lower/higher the outlier is compared to the `pop_median`
 * `zscore` is the signed methylation zscore representing how significantly different methylation levels in this sample are compared to rest of population
 
+If the input bam is phased as specified in the input table when `Phased` is set to **TRUE**. Additional columns will be reported per outlier to reflect haplotype or allelic effects of the outlier. These additional phasing columns can be found in the output file `{Sample_name}.tissue_{Tissue}.METAFORA.outlier_regions.haplotype_annotated.bed` and have the following additional columns:
+* `combined_depth` is total depth across all reads (including those reads that couldn't be phased)
+* `hap{1,2}_depth` is the number of reads supporting that given haplotype
+* `hap{1,2}_beta` is the proportion of methylated reads estimate for that given haplotype
+* `phasing_percent` percent of reads that were confidently phased. phasing percent = (hap1_depth + hap2_depth)/(combined_depth)
+* `haplotype_coverage_bias` is an estimate of how biased the coverage is across the two haplotypes. a value of 0 means hap1 and hap2 have same number of reads. higher absolute values means one haplotype has much more coverage than the other. haplotype_coverage_bias = log(hap1_depth/hap2_depth)
+* `hap_delta` is the haplotype or allelic methylation effect of the outlier. defined as the difference between hap1_beta and hap2_beta.
+
+If using phased data, we recommend filtering outliers based on absolute `hap_delta` in order to find outliers that have an allelic effect and are being driven by nearby rare variants. Outliers that do not have a strong `hap_delta` are more likely to be spurious/artefactual or caused by trans factors not properly accounted for, ie cell type composition, environmental exposure, regulatory network effects, etc.    
+
 `{Sample_name}.tissue_{Tissue}.METAFORA.outlier_regions.zscore.mat`: is a matrix containing z-scores for all samples across each outlier region. Columns represent samples while row represent outlier regions that can be cross-linked to the outlier_regions.bed file. Each cell represents methylation z-score for that samples in that methylation region.
 
 In addition to these summary files, we also plot a pdf image of each methylation outlier in the `outlier_plots` directory. These figures show 1. the population mean methylation with confidence intervals showing standard error of that estimate, as well as the observed sample-level methlyation. 2. the population deviance score across the same region with red line highlighting the segmented candidate outlier region. 3. the population methylation z-score distribution after correction and normalization with the outlier sample highlighted in red. An example plot for an outlier is included below: 
@@ -143,6 +154,8 @@ In addition to these summary files, we also plot a pdf image of each methylation
 <img width="300" alt="image" src="https://github.com/user-attachments/assets/383de49a-5755-49d2-af5b-2af2585de0f0">
 
 In addition to methylation outlier regions per sample, Metafora also outputs a tissue methylation reference, the estimate of mean methylation proportions at each cpg as well as a matrix of beta and depth values per chrom across the whole cohort in the `Population_Methylation.tissue_{tissue}/` directory. Also data tables of estimated hidden factors and sex chromosome copy number / sex assignments can be found as well as plots for correlation outlier, global autosomal PCs, and sex chromosome copy numbers in the `Global_Methylation_PCA_tissue_{tissue}` directory.
+
+
 
 ### Dependencies
 To run Metafora, one must install snakemake and (ideally) mamba through conda. Conda environments for each step are then specified for each snakemake rule and will be automatically installed and activated when running snakemake with the `--use-conda` parameter. 
