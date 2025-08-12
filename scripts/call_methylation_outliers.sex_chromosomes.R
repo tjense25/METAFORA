@@ -50,7 +50,7 @@ segment_chrom <- function(meth.sample, this_chrom, segment_alpha=.01, min_seg_si
   cand.segs <-Reduce(rbind,pbmclapply(1:nrow(blocks), function(i) {  
     tmp.meth <- meth.sample[blocks$start[i]:blocks$end[i],]
     as.data.frame(fastseg(tmp.meth$zscore, alpha = segment_alpha, 
-            minSeg = min_seg_size, segMedianT = c(median_seg_z,-median_seg_z))) %>%
+            minSeg = min_seg_size, segMedianT = c(median_seg_z,-median_seg_z)))  %>%
       mutate(start = tmp.meth$start[start], end=tmp.meth$start[end],
              seqnames=this_chrom)}))
   return(cand.segs)
@@ -212,10 +212,10 @@ main <- function(argv) {
     sex_chrom.df <- read.table(argv$sex_chromosome_tsv, row.names=1, header=T)
     chrY_seqname <- argv$chrY_seqname
 
-    MIN_SEG_SIZE <- argv$min_seg_size
-    MIN_ABS_ZSCORE <- argv$min_abs_zscore
-    MIN_ABS_DELTA <- argv$min_abs_delta
-    MAX_DEPTH <- argv$max_depth
+    MIN_SEG_SIZE <- as.integer(argv$min_seg_size)
+    MIN_ABS_ZSCORE <- as.numeric(argv$min_abs_zscore)
+    MIN_ABS_DELTA <- as.numeric(argv$min_abs_delta)
+    MAX_DEPTH <- as.numeric(argv$max_depth)
 
     # REMOVE GLOBAL OUTLIERS + RECOMPUTE POP MEAN
     cat("remove global outliers and recompute pop mean . . . \n")
@@ -239,9 +239,8 @@ main <- function(argv) {
         return()
     }
 
-    cat("correct pop mean for specific sex")
+    cat("correct pop mean for specific sex . . .\n")
     ## Correct pop mean for specific batch
-    cat("Correcting population mean for sample batch . . .\n")
     beta.mat <- as.matrix(betas[,4:ncol(betas)])
     original_col_names <- colnames(beta.mat)
     depth.mat <- as.matrix(depths[,4:ncol(depths)])
@@ -287,7 +286,6 @@ main <- function(argv) {
     outliers <- call_outliers(cand.segs, betas, depths, sample_id=this_sample, MIN_ABS_ZSCORE=MIN_ABS_ZSCORE, covariates=covariates, original_col_names=original_col_names)
     outlier.segs <- outliers[["outlier.segs"]]
     outlier_z_matrix <- outliers[["z.mat"]]
-    outlier.segs
     if(nrow(outlier.segs)==0||is.null(nrow(outlier.segs))) {
         write.table(NULL, file=argv$outlier_bed, row.names=F, col.names=T, quote=F)
         write.table(NULL, file=argv$outlier_z_mat,row.names=T,col.names=T, quote=F)
@@ -307,7 +305,7 @@ main <- function(argv) {
     outlier.segs$CHROM_TYPE <- "SEX_CHROM"
     outlier_z_matrix = matrix(outlier_z_matrix, nrow=nrow(outlier.segs))
     rownames(outlier_z_matrix)  <- outlier.segs$seg_id
-    colnames(outlier_z_matrix) <- colnames(betas)[4:ncol(betas)]
+    colnames(outlier_z_matrix) <- original_col_names
     write.table(outlier.segs, file=argv$outlier_bed, row.names=F, col.names=T, quote=F)
     write.table(outlier_z_matrix, file=argv$outlier_z_mat,row.names=T,col.names=T, quote=F)
 

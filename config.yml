@@ -14,3 +14,4 @@ reference_fasta: /references/GRCH38/GRCh38_no_alt_analysis_set_GCA_000001405.15.
 reference_seqnames_table: ./GRCh38_ref_seqnames_table.txt
 
 annotation_track_tsv: "metafora_grch38_report_annotations.tsv"
+chrX_inactivation_regions: "references/X_inactivation_regions.GRCh38.bed"

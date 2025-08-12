@@ -60,4 +60,8 @@ outliers$phasing_percent <- pmin(outliers$combined_depth / (outliers$hap1_depth 
 outliers$haplotype_coverage_bias <- log(outliers$hap1_depth/outliers$hap2_depth)
 outliers$hap_delta <- outliers$hap1_beta - outliers$hap2_beta
 
+#outliers
+#outliers %<>% mutate(hap1_deviance_score = qnorm(pbeta(q=hap1_beta, 0.5*hap1_depth, .5*hap1_depth)),
+#                     hap2_deviance_score = qnorm(pbeta(q=hap2_beta, 0.5*hap2_depth, .5*hap2_depth)))
+
 fwrite(outliers, argv$annotated_out, sep="\t")
