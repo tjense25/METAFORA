@@ -79,6 +79,7 @@ segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this
         if (nrow(segs) == 0) {return(NULL)}
         return(segs %>% mutate(ID=this_sample, seg_id=paste0(x,"_",this_sample,"_",1:nrow(segs))))
       }))
+  cand.segs <- cand.segs[!is.na(cand.segs$`seg.mean`),] #remove cand segments that are NA over all cpgs
   cand.segs <- cand.segs[abs(cand.segs$seg.mean) > zscore_threshold,]
   return(list("meth.sample"=meth.sample,"cand.segs"=cand.segs))
 }
