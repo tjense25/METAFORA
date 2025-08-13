@@ -16,7 +16,7 @@ parser <- add_argument(parser, "--hap2", help="Metafora formatted Haplotype 2 be
 parser <- add_argument(parser, "--annotated_out", help="where to write the haplotype annotated bed file")
 argv <- parse_args(parser)
 
-if(file.info(argv$outlier_bed)$size == 0) {
+if(file.info(argv$outlier_bed)$size <= 1) {
     fwrite(NULL, argv$annotated_out)
     quit(save = "no")
 }
