@@ -1,0 +1,4 @@
+version: 1.2
+workflows:
+  - subclass: WDL
+    primaryDescriptorPath: /WDL/metafora_pacbio_phased.wdl
