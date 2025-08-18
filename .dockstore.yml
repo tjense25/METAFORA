@@ -2,3 +2,7 @@ version: 1.2
 workflows:
   - subclass: WDL
     primaryDescriptorPath: /WDL/metafora_pacbio_phased.wdl
+    name: Metafora
+  - subclass: WDL
+    primaryDescriptorPath: /WDL/metafora_generate_bed.wdl
+    name: Metafora_GenerateBed
