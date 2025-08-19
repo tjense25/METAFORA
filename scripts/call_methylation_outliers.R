@@ -12,6 +12,9 @@ library(Matrix)
 library(magrittr)
 library(cowplot)
 library(matrixStats)
+ncores <- availableCores()
+options(mc.cores=ncores)
+options(dplyr.summarise.inform = FALSE, dplyr.join.inform = FALSE)
 
 parser <- arg_parser("Calculate and segment per sample zscore")
 parser <- add_argument(parser, "--sample", help="sample to parse and detect outliers in")
@@ -30,8 +33,8 @@ parser <- add_argument(parser, "--max_depth", help="maxmimum depth of read cover
  
 argv <- parse_args(parser)
 
-segment_chrom <- function(meth.sample, this_chrom, segment_alpha=.01, min_seg_size = 20, median_seg_z = 1) {
-  # segment zscore profile
+segment_chrom <- function(meth.sample, this_chrom, segment_alpha=.01, min_seg_size = 10, median_seg_z = 2) {
+  # segment deviance score profile
   meth.sample <- meth.sample[meth.sample$chrom == this_chrom,]
   
   index <- c(1,which(diff(meth.sample$start) > 1000)) #break into blocks of contiguous cpgs in at least 1000bp window
@@ -47,14 +50,16 @@ segment_chrom <- function(meth.sample, this_chrom, segment_alpha=.01, min_seg_si
 
   cand.segs <-Reduce(rbind,pbmclapply(1:nrow(blocks), function(i) {  
     tmp.meth <- meth.sample[blocks$start[i]:blocks$end[i],]
-    as.data.frame(fastseg(tmp.meth$zscore, alpha = segment_alpha, 
+    as.data.frame(fastseg(tmp.meth$deviance_score, alpha = segment_alpha, 
             minSeg = min_seg_size, segMedianT = c(median_seg_z,-median_seg_z))) %>%
       mutate(start = tmp.meth$start[start], end=tmp.meth$start[end],
-             seqnames=this_chrom)}))
+             seqnames=this_chrom)},mc.cores=ncores, mc.preschedule=T))
   return(cand.segs)
 }
 
-segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this_chrom, zscore_threshold=2, segment_alpha=.01, min_seg_size = 20, median_seg_z = 1, MAX_DEPTH=30) {
+MIN_Z_THRESH <- function(D) {0.76983 + 0.02709*D} #intercept optimized by simulation benchmark experiments
+MAX_Z_THRESH <- function(D) {4.112 + 0.1395*D} #intercept and slope optimized by simulation benchmark experiments
+segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this_chrom, segment_alpha=.01, min_seg_size = 10, MAX_DEPTH=100) {
   betas.sample <- betas %>% select("chromosome","start",all_of(this_sample))
   colnames(betas.sample) <- c("chromosome","start","sample_beta")
   
@@ -63,24 +68,26 @@ segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this
   
   meth.sample <- pop_mean %>% left_join(betas.sample) %>% left_join(depth.sample) %>% mutate(cpg_num = 1:n())
   meth.sample$sample_depth %<>% pmin(MAX_DEPTH) #cap depth at specified value to not inflate p-values for high-coverage samples
+  MIN_Z=max(1,MIN_Z_THRESH(D))
+  MAX_Z=MAX_Z_THRESH(D)
 
   #beta correction on sample
   meth.sample$sample_beta <- (meth.sample$sample_beta*meth.sample$sample_depth+1)/(meth.sample$sample_depth+2)
   
   # calculate zscore
-  meth.sample %<>% mutate(zscore = qnorm(pbeta(q=sample_beta, mean_beta*sample_depth, (1-mean_beta)*sample_depth)))
-  meth.sample$zscore %<>% pmax(-6)
-  meth.sample$zscore %<>% pmin(6)
+  meth.sample %<>% mutate(deviance_score = qnorm(pbeta(q=sample_beta, mean_beta*sample_depth, (1-mean_beta)*sample_depth)))
+  meth.sample$deviance_score %<>% pmax(-MAX_Z)
+  meth.sample$deviance_score %<>% pmin(MAX_Z)
   meth.sample <- meth.sample[!is.na(meth.sample$sample_beta),]
 
   # segment zscore profile
   cand.segs <- Reduce(rbind,lapply(c(this_chrom), function(x) {  
-        segs <- segment_chrom(meth.sample, x, segment_alpha, min_seg_size, median_seg_z)
+        segs <- segment_chrom(meth.sample, x, segment_alpha, min_seg_size, MIN_Z)
         if (nrow(segs) == 0) {return(NULL)}
         return(segs %>% mutate(ID=this_sample, seg_id=paste0(x,"_",this_sample,"_",1:nrow(segs))))
       }))
   cand.segs <- cand.segs[!is.na(cand.segs$`seg.mean`),] #remove cand segments that are NA over all cpgs
-  cand.segs <- cand.segs[abs(cand.segs$seg.mean) > zscore_threshold,]
+  cand.segs <- cand.segs[abs(cand.segs$seg.mean) > MIN_Z,]
   return(list("meth.sample"=meth.sample,"cand.segs"=cand.segs))
 }
 
