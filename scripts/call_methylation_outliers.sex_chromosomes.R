@@ -12,8 +12,6 @@ library(Matrix)
 library(magrittr)
 library(cowplot)
 library(matrixStats)
-ncores <- availableCores()
-options(mc.cores=ncores)
 options(dplyr.summarise.inform = FALSE, dplyr.join.inform = FALSE)
 
 parser <- arg_parser("Calculate and segment per sample zscore")
@@ -32,11 +30,13 @@ parser <- add_argument(parser, "--min_seg_size", help="minimum number of cpgs in
 parser <- add_argument(parser, "--min_abs_delta", help="minimum effect size delta (sample_average_methylation - population_median_methylation) for calling methylation region an outlier", type="numeric", default=0.25)
 parser <- add_argument(parser, "--max_depth", help="maxmimum depth of read coverage to consider. (regions higher than this depth will be effectively downsampled)", type="integer", default=30)
 parser <- add_argument(parser, "--chrY_seqname", help="seqname for Y chromosome in reference (or W chromosome for birds )")
+parser <- add_argument(parser, "--threads", help="number of threads to use for paralellized chrom block segmentation", default=1)
  
 argv <- parse_args(parser)
+ncores=as.integer(argv$threads)
 
 segment_chrom <- function(meth.sample, this_chrom, segment_alpha=.01, min_seg_size = 10, median_seg_z = 2) {
-  # segment zscore profile
+  # segment deviance score profile
   meth.sample <- meth.sample[meth.sample$chrom == this_chrom,]
   
   index <- c(1,which(diff(meth.sample$start) > 1000)) #break into blocks of contiguous cpgs in at least 1000bp window
@@ -53,15 +53,16 @@ segment_chrom <- function(meth.sample, this_chrom, segment_alpha=.01, min_seg_si
   cand.segs <-Reduce(rbind,pbmclapply(1:nrow(blocks), function(i) {  
     tmp.meth <- meth.sample[blocks$start[i]:blocks$end[i],]
     as.data.frame(fastseg(tmp.meth$deviance_score, alpha = segment_alpha, 
-            minSeg = min_seg_size, segMedianT = c(median_seg_z,-median_seg_z)))  %>%
-      mutate(start = tmp.meth$start[start], end=tmp.meth$start[end],
-             seqnames=this_chrom)}))
+            minSeg = min_seg_size, segMedianT = c(median_seg_z,-median_seg_z))) %>%
+			  mutate(start = tmp.meth$start[start], end=tmp.meth$start[end], seqnames=this_chrom)
+	},mc.cores=ncores, mc.preschedule=T ))
   return(cand.segs)
 }
 
-MIN_Z_THRESH <- function(D) {0.76983 + 0.02709*D} #intercept optimized by simulation benchmark experiments
-MAX_Z_THRESH <- function(D) {4.112 + 0.1395*D} #intercept and slope optimized by simulation benchmark experiments
-segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this_chrom, segment_alpha=.01, min_seg_size = 20, median_seg_z = 1, MAX_DEPTH=30) {
+MIN_Z_THRESH <- function(D) {1.172304 + .0355*D} #optimized parameters accounting for depth from simulation experiment to acheive 90% power for absolute deltas of 0.25
+MAX_Z_THRESH <- function(D) {5.5 + 0.16654*D} #optimized  parameters accounting for depth for zscores observed for 0.9 deltas 
+
+segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this_chrom, segment_alpha=.01, min_seg_size = 10, MAX_DEPTH=100) {
   betas.sample <- betas %>% select("chromosome","start",all_of(this_sample))
   colnames(betas.sample) <- c("chromosome","start","sample_beta")
   
@@ -69,7 +70,9 @@ segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this
   colnames(depth.sample) <- c("chromosome", "start", "sample_depth")
   
   meth.sample <- pop_mean %>% left_join(betas.sample) %>% left_join(depth.sample) %>% mutate(cpg_num = 1:n())
-  meth.sample$sample_depth %<>% pmin(MAX_DEPTH) #cap depth at 30x coverage
+  meth.sample$sample_depth %<>% pmin(MAX_DEPTH) #cap depth at specified value to not inflate p-values for high-coverage samples
+
+  D=median(depth.sample$sample_depth,na.rm=T)
   MIN_Z=max(1,MIN_Z_THRESH(D))
   MAX_Z=MAX_Z_THRESH(D)
 
@@ -78,8 +81,8 @@ segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this
   
   # calculate zscore
   meth.sample %<>% mutate(deviance_score = qnorm(pbeta(q=sample_beta, mean_beta*sample_depth, (1-mean_beta)*sample_depth)))
-  meth.sample$zscore %<>% pmax(-MAX_Z)
-  meth.sample$zscore %<>% pmin(MAX_Z)
+  meth.sample$deviance_score %<>% pmax(-MAX_Z)
+  meth.sample$deviance_score %<>% pmin(MAX_Z)
   meth.sample <- meth.sample[!is.na(meth.sample$sample_beta),]
 
   # segment zscore profile

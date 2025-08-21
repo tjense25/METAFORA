@@ -384,7 +384,8 @@ rule call_outliers:
         --min_abs_zscore {params.MIN_ABS_ZSCORE} \
         --min_abs_delta {params.MIN_ABS_DELTA} \
         --max_depth {params.MAX_DEPTH} \
-        --tissue {wildcards.tissue}
+        --tissue {wildcards.tissue} \
+        --threads {threads}
   """
 
 rule call_outliers_sex_chroms:
@@ -426,7 +427,8 @@ rule call_outliers_sex_chroms:
         --min_abs_zscore {params.MIN_ABS_ZSCORE} \
         --min_abs_delta {params.MIN_ABS_DELTA} \
         --max_depth {params.MAX_DEPTH} \
-        --tissue {wildcards.tissue} 
+        --tissue {wildcards.tissue} \
+        --threads {threads}
   """
 
 rule combine_chrom_outliers:

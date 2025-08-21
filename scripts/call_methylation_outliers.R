@@ -12,8 +12,6 @@ library(Matrix)
 library(magrittr)
 library(cowplot)
 library(matrixStats)
-ncores <- availableCores()
-options(mc.cores=ncores)
 options(dplyr.summarise.inform = FALSE, dplyr.join.inform = FALSE)
 
 parser <- arg_parser("Calculate and segment per sample zscore")
@@ -30,8 +28,10 @@ parser <- add_argument(parser, "--min_abs_zscore", help="minimum absolute zscore
 parser <- add_argument(parser, "--min_seg_size", help="minimum number of cpgs in a region to call a candidate outlier during segmentation", type="integer", default=20)
 parser <- add_argument(parser, "--min_abs_delta", help="minimum effect size delta (sample_average_methylation - population_median_methylation) for calling methylation region an outlier", type="numeric", default=0.25)
 parser <- add_argument(parser, "--max_depth", help="maxmimum depth of read coverage to consider. (regions higher than this depth will be effectively downsampled)", type="integer", default=30)
+parser <- add_argument(parser, "--threads", help="number of threads to use for paralellized chrom block segmentation", default=1)
  
 argv <- parse_args(parser)
+ncores=as.integer(argv$threads)
 
 segment_chrom <- function(meth.sample, this_chrom, segment_alpha=.01, min_seg_size = 10, median_seg_z = 2) {
   # segment deviance score profile
@@ -52,13 +52,14 @@ segment_chrom <- function(meth.sample, this_chrom, segment_alpha=.01, min_seg_si
     tmp.meth <- meth.sample[blocks$start[i]:blocks$end[i],]
     as.data.frame(fastseg(tmp.meth$deviance_score, alpha = segment_alpha, 
             minSeg = min_seg_size, segMedianT = c(median_seg_z,-median_seg_z))) %>%
-      mutate(start = tmp.meth$start[start], end=tmp.meth$start[end],
-             seqnames=this_chrom)},mc.cores=ncores, mc.preschedule=T))
+              mutate(start = tmp.meth$start[start], end=tmp.meth$start[end], seqnames=this_chrom)
+    },mc.cores=ncores, mc.preschedule=T))
   return(cand.segs)
 }
 
-MIN_Z_THRESH <- function(D) {0.76983 + 0.02709*D} #intercept optimized by simulation benchmark experiments
-MAX_Z_THRESH <- function(D) {4.112 + 0.1395*D} #intercept and slope optimized by simulation benchmark experiments
+MIN_Z_THRESH <- function(D) {1.172304 + .0355*D} #optimized parameters accounting for depth from simulation experiment to acheive 90% power for absolute deltas of 0.25
+MAX_Z_THRESH <- function(D) {5.5 + 0.16654*D} #optimized  parameters accounting for depth for zscores observed for 0.9 deltas 
+
 segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this_chrom, segment_alpha=.01, min_seg_size = 10, MAX_DEPTH=100) {
   betas.sample <- betas %>% select("chromosome","start",all_of(this_sample))
   colnames(betas.sample) <- c("chromosome","start","sample_beta")
@@ -68,6 +69,8 @@ segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this
   
   meth.sample <- pop_mean %>% left_join(betas.sample) %>% left_join(depth.sample) %>% mutate(cpg_num = 1:n())
   meth.sample$sample_depth %<>% pmin(MAX_DEPTH) #cap depth at specified value to not inflate p-values for high-coverage samples
+
+  D=median(depth.sample$sample_depth,na.rm=T)
   MIN_Z=max(1,MIN_Z_THRESH(D))
   MAX_Z=MAX_Z_THRESH(D)
 
@@ -81,6 +84,7 @@ segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this
   meth.sample <- meth.sample[!is.na(meth.sample$sample_beta),]
 
   # segment zscore profile
+
   cand.segs <- Reduce(rbind,lapply(c(this_chrom), function(x) {  
         segs <- segment_chrom(meth.sample, x, segment_alpha, min_seg_size, MIN_Z)
         if (nrow(segs) == 0) {return(NULL)}
@@ -258,10 +262,9 @@ main <- function(argv) {
     cat("Calculating population difference zscore and segment to find candidate outlier region . . .\n")
     # calculate pop difference zscore and segment to find candidate outlier regions
 
-    cand.outliers <- segment_candidate_outliers(pop_mean, betas, depths,this_sample=this_sample, this_chrom=this_chrom, min_seg_size=MIN_SEG_SIZE)
+    cand.outliers <- segment_candidate_outliers(pop_mean, betas, depths,this_sample=this_sample, this_chrom=this_chrom, min_seg_size=MIN_SEG_SIZE,MAX_DEPTH=MAX_DEPTH)
     meth.sample = cand.outliers[["meth.sample"]]
     cand.segs <- cand.outliers[["cand.segs"]]
-    cand.segs
     if(nrow(cand.segs)==0||is.null(nrow(cand.segs))) {
         write.table(NULL, file=argv$outlier_bed, row.names=F, col.names=T, quote=F)
         write.table(NULL, file=argv$outlier_z_mat,row.names=T,col.names=T, quote=F)
@@ -272,7 +275,6 @@ main <- function(argv) {
     outliers <- call_outliers(cand.segs, betas, depths, sample_id=this_sample, MIN_ABS_ZSCORE=MIN_ABS_ZSCORE, covariates=covariates)
     outlier.segs <- outliers[["outlier.segs"]]
     outlier_z_matrix <- outliers[["z.mat"]]
-    outlier.segs
     if(nrow(outlier.segs)==0||is.null(nrow(outlier.segs))) {
         write.table(NULL, file=argv$outlier_bed, row.names=F, col.names=T, quote=F)
         write.table(NULL, file=argv$outlier_z_mat,row.names=T,col.names=T, quote=F)
@@ -281,7 +283,6 @@ main <- function(argv) {
     keep <- (abs(outlier.segs$zscore) > MIN_ABS_ZSCORE & abs(outlier.segs$delta) > MIN_ABS_DELTA)
     outlier_z_matrix <- outlier_z_matrix[keep,]
     outlier.segs <- outlier.segs[keep,]
-    outlier.segs
     if(nrow(outlier.segs)==0||is.null(nrow(outlier.segs))) {
         write.table(NULL, file=argv$outlier_bed, row.names=F, col.names=T, quote=F)
         write.table(NULL, file=argv$outlier_z_mat,row.names=T,col.names=T, quote=F)
@@ -289,6 +290,7 @@ main <- function(argv) {
     }
 
     ## Save Data
+    outlier.segs$width <- outlier.segs$end - outlier.segs$start
     outlier.segs$Tissue <- argv$tissue
     outlier.segs$CHROM_TYPE <- "AUTOSOME"
     outlier_z_matrix = matrix(outlier_z_matrix, nrow=nrow(outlier.segs))

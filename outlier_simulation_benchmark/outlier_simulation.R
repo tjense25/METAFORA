@@ -42,8 +42,8 @@ segment_chrom <- function(meth.sample, this_chrom, segment_alpha=.01, min_seg_si
 }
 
 
-MIN_Z_THRESH <- function(D) {0.76983 + 0.02709*D} #intercept optimized by simulation benchmark experiments
-MAX_Z_THRESH <- function(D) {4.112 + 0.1395*D} #intercept and slope optimized by simulation benchmark experiments
+MIN_Z_THRESH <- function(D) {1.172304 + .0355*D}
+MAX_Z_THRESH <- function(D) {5.5 + 0.16654*D}
 
 segment_candidate_outliers <- function(pop_mean, betas, depths, this_sample, this_chrom, segment_alpha=.01, min_seg_size = 10, MAX_DEPTH=100) {
   betas.sample <- betas %>% select("chromosome","start",all_of(this_sample))
