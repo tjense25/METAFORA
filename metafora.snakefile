@@ -79,6 +79,7 @@ if SKIP_SEX_CHROMOSOME_ESTIMATION in ["TRUE","T","True","true",True]:
 rule all:
     input:
       #expand(join(outdir, "sample_level_data/{sample}/{sample}.chrX_inactivation_skew.summary_dat.txt"), sample=samples),
+      #outlier_bed = expand(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.chrom_{chr}.bed"), tissue=sample_tissues, chr=autosomes),
       expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues),
       #expand(join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt"), tissue="Blood"),
       join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
@@ -354,6 +355,41 @@ rule compute_hidden_factors:
         --chrX_seqname {params.chrX_seqname} \
         --chrY_seqname {params.chrY_seqname} \
         --covariates {params.covariates} 
+  """
+
+rule call_outliers_combined:
+  threads:16
+  resources:
+    time=48,
+    mem=512
+  input:
+    beta_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.betas.mat.gz"),
+    depth_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.coverage.mat.gz"),
+    global_pcs = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt")
+  params:
+    script = "scripts/call_methylation_outliers.all_samples.R",
+    MAX_DEPTH = MAX_DEPTH, 
+    MIN_SEG_SIZE = MIN_SEG_SIZE, 
+    MIN_ABS_ZSCORE = MIN_ABS_ZSCORE, 
+    MIN_ABS_DELTA = MIN_ABS_DELTA 
+  output:
+    outlier_bed = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.chrom_{chr}.bed"),
+    outlier_z_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.zscore.chrom_{chr}.mat")
+  conda: 'envs/metafora.yaml'
+  shell: """ 
+    Rscript {params.script} \
+        --chrom {wildcards.chr} \
+        --beta_mat {input.beta_mat} \
+        --depth_mat {input.depth_mat} \
+        --global_meth_pcs {input.global_pcs} \
+        --outlier_bed {output.outlier_bed} \
+        --outlier_z_mat {output.outlier_z_mat} \
+        --min_seg_size {params.MIN_SEG_SIZE} \
+        --min_abs_zscore {params.MIN_ABS_ZSCORE} \
+        --min_abs_delta {params.MIN_ABS_DELTA} \
+        --max_depth {params.MAX_DEPTH} \
+        --tissue {wildcards.tissue} \
+        --threads {threads}
   """
 
 rule call_outliers:

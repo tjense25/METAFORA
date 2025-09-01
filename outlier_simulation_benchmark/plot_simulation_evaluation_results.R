@@ -29,7 +29,7 @@ ggsave("./false_positive_rate.barplot.pdf")
 
 #eval.df %>% filter(tp) %>% 
 #    ggplot(aes(factor(abs(delta)), abs(segmean), fill=factor(D))) + geom_violin(scale="width") + theme_minimal() 
-gg <- eval.df %>% filter(fps > 0) %>% filter(noise==0)  %>% filter(config_id==1) %>% 
+gg <- eval.df %>% filter(fps > 0)  %>% 
     ggplot(aes(max_FP_size, max_FP_delta)) + geom_jitter(alpha=.7) + theme_minimal() +
     geom_hline(yintercept=0.2,color="red", linetype="dashed") + 
     geom_vline(xintercept=10.5,color="red", linetype="dashed") + 
