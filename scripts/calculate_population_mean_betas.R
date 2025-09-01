@@ -21,30 +21,38 @@ parser <- add_argument(parser, "--depth_mat", help="where to write depth matrix 
 parser <- add_argument(parser, "--pop_mean", help="where to write population mean beta")
 parser <- add_argument(parser, "--segment_beta", help="where to write mean porfile segments")
 parser <- add_argument(parser, "--segment_depth", help="where to write average depth over segments")
+parser <- add_argument(parser, "--threads", help="number of parallel threads to reads meth data")
 argv <- parse_args(parser)
+ncores=as.integer(argv$threads)
 
 this_chrom <- argv$chrom
-methylation.dat <- fread(argv$cpgs)
+cat("Reading cpg reference bed  . . . \n")
+methylation.dat <- data.table(tabix(paste0(this_chrom,":1-1000000000"), argv$cpgs,verbose=F))
 colnames(methylation.dat) <- c("chromosome", "start","end")
-methylation.dat <- methylation.dat[methylation.dat$chromosome == this_chrom,]
 max_start<- max(methylation.dat$start) + 1
-this_region=paste0(this_chrom,":",1,"-",max_start)
+this_region=paste0(this_chrom,":1-",max_start)
 min_cpg_number <- argv$min_segment_cpgs
-this_region
 
-#read in files and merge depth and betas to cpg data.table 
-file_list=read.table(argv$filelist,col.names="file")$file
-for (f in file_list) {
-    sample_id = str_split(basename(f), pattern='\\.',simplify =T)[1]
-    cat(paste0('reading methylation profile for sample ', sample_id, ' from file ', f,'\n'))
-    tmp.cpg <- tabix(region=this_region, f, verbose=F)
+read_meth_sample <- function(methylation.dat, fname) {
+    sample_id <- str_split(basename(fname), pattern='\\.',simplify =T)[1]
+    sample_id <- gsub("-", "_", sample_id)
+    tmp.cpg <- tabix(region=this_region, fname, verbose=F)
     colnames(tmp.cpg) <- c("chromosome","start","end","depth","beta")
     tmp.cpg$start %<>% as.integer()
     tmp.cpg$depth %<>% as.integer()
     tmp.cpg$beta %<>% as.numeric()
     cols=paste0(sample_id,c(".depth", ".beta"))
-    methylation.dat[tmp.cpg, on=.(chromosome,start), (cols) := mget(c("i.depth", "i.beta"))]
+    tmp.merge <- data.table(copy(methylation.dat))
+    tmp.merge[tmp.cpg, on=.(chromosome,start), (cols) := mget(c("i.depth", "i.beta"))]
+    return(tmp.merge[,4:5])
 }
+
+#read in files and merge depth and betas to cpg data.table 
+cat("\nReading sample bed files and aggregating into single matrix . . . \n")
+file_list=read.table(argv$filelist,col.names="file")$file
+formatted_dat <- pbmclapply(file_list, function(f) read_meth_sample(methylation.dat, f), mc.cores=ncores, mc.preschedule=T) %>% bind_cols
+
+methylation.dat <- data.table(cbind(methylation.dat, formatted_dat))
 cat("\nCalculating mean beta and total depth across all samples\n\n")
 # create matrix of depths per cpg per sample
 depth_cols <- c(1,2,3,seq(4,ncol(methylation.dat),2))
@@ -61,8 +69,11 @@ beta.mat <- as.matrix(beta[,4:ncol(beta)])
 
 #subset to cpgs that have coverage across samples
 cat('subsetting to cpgs with reasonable coverage across most samples . . .\n')
-median_depth <- apply(depth.mat,1,function(x) median(x,na.rm=T))
-keep_cpgs <- (!is.na(median_depth)) & median_depth >= 5
+depth.mat[is.na(depth.mat)] <- 0 #samples with NA coverage had zero depth
+sample_depths <- apply(depth.mat,2,median) #first subset to samples with sufficient chromosomal depth (removing low coverage outliers and XX individuals for Y chrom)
+tmp.depth.mat <- depth.mat[,sample_depths >= 5]
+median_depth <- apply(tmp.depth.mat,1,median)
+keep_cpgs <- median_depth >= 5
 depth.mat <- depth.mat[keep_cpgs,]
 depth <- depth[keep_cpgs,]
 beta.mat <- beta.mat[keep_cpgs,]
@@ -89,7 +100,7 @@ breakup_large_segments <- function(segs, threshold=200, smaller_seg_size=100) {
             tmp$end <- ends
             tmp$num.mark <- tmp$end - tmp$start + 1
             return(tmp)
-    } ))
+    }))
     return(smaller_segments)
 }
 
@@ -104,7 +115,7 @@ segment_blocks <- function(pop_mean, chrom, alpha = 0.01, minSeg = 10) {
   blocks = data.frame(start=block_start, end=block_end)
   blocks <- blocks[(blocks$end - blocks$start) > minSeg,]
   
-  segments <- Reduce(rbind,pbmclapply(1:nrow(blocks), function(i) { 
+  segments <- Reduce(rbind,lapply(1:nrow(blocks), function(i) { 
     block_beta <- pop_mean[blocks$start[i]:blocks$end[i],]
     segs <- as.data.frame(fastseg(block_beta$mean_beta, alpha=alpha, minSeg=minSeg, segMedianT=c(.65,.35)))
     segs <- breakup_large_segments(segs)
@@ -124,6 +135,7 @@ betas.gr <- makeGRangesFromDataFrame(beta)
 #pop_mean = rowSums(betas.mat*depth.mat, na.rm=T) / rowSums(depth.mat, na.rm=T)
 meth_segs <- segment_blocks(pop_mean, this_chrom, minSeg = min_cpg_number)
   
+cat("Summarizing methylation over segmented regions . . . \n")
 ol <- findOverlaps(meth_segs, betas.gr)
 # create Segment x CpG identity matrix to indicate which cpgs belong to which segment
 CpG_Identity <- sparseMatrix(i = queryHits(ol), j = subjectHits(ol), dims=c(length(meth_segs),nrow(beta)), x=1)

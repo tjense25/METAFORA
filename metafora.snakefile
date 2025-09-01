@@ -80,6 +80,7 @@ rule all:
     input:
       #expand(join(outdir, "sample_level_data/{sample}/{sample}.chrX_inactivation_skew.summary_dat.txt"), sample=samples),
       expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues),
+      #expand(join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt"), tissue="Blood"),
       join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
 
 rule create_cpg_reference:
@@ -91,15 +92,20 @@ rule create_cpg_reference:
       ref = config["reference_fasta"]
     params:
       script = "scripts/create_reference_cpg_bed.R",
-      valid_chroms = ','.join(autosomes + sex_chroms)
+      valid_chroms = ','.join(autosomes + sex_chroms),
+      tmp_bed = join(outdir,"cpg_reference.bed")
     output:
-      cpg_bed = join(outdir, "cpg_reference.bed")
+      cpg_bed = join(outdir, "cpg_reference.bed.gz"),
+      cpg_tbi = join(outdir, "cpg_reference.bed.gz.tbi")
     conda: 'envs/metafora.yaml'
     shell: """
       Rscript {params.script} \
           --reference {input.ref} \
           --valid_chroms {params.valid_chroms} \
-          --cpg_bed_out {output.cpg_bed}
+          --cpg_bed_out {params.tmp_bed}
+
+      bgzip {params.tmp_bed}
+      tabix -p bed {output.cpg_bed}
     """
 
 
@@ -245,13 +251,13 @@ rule format_pacbio_hap:
   """
   
 rule create_tissue_sample_reference:
-  threads: 1
+  threads: 16
   resources:
     time=24,
-    mem=128
+    mem=512
   input:
     meth_beds = get_input_samples,
-    cpg_bed = join(outdir, "cpg_reference.bed")
+    cpg_bed = join(outdir, "cpg_reference.bed.gz")
   params:
     filelist=join(outdir,"tmp.{tissue}.file_list.chrom_{chr}.txt"),
     script = "scripts/calculate_population_mean_betas.R",
@@ -280,7 +286,8 @@ rule create_tissue_sample_reference:
         --depth_mat {params.tmp_depth} \
         --pop_mean {params.tmp_mean} \
         --segment_beta {output.seg_beta} \
-        --segment_depth {output.seg_depth}
+        --segment_depth {output.seg_depth} \
+        --threads {threads}
     rm {params.filelist}
 
     bgzip {params.tmp_beta}
