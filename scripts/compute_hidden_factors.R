@@ -18,29 +18,16 @@ library(matrixStats)
 parser <- arg_parser("Script to compute global variation PCs in methylation profiles and auto-detect outliers")
 parser <- add_argument(parser, "--seg_beta", help = "comma-separated list of summarized segment betas from segmentation for each autosome")
 parser <- add_argument(parser, "--seg_depth", help = "comma-separated list of summarized segment depths from segmentation for each autosome")
-parser <- add_argument(parser, "--sex_seg_beta", help = "comma-separated list of summarized segment betas from segmentation for each sex chromosome")
-parser <- add_argument(parser, "--sex_seg_depth", help = "comma-separated list of summarized segment depths from segmentation for each sex chromosome")
+parser <- add_argument(parser, "--sex_chrom_estimation", help="whether to skip sex chrom estimation or to GO FOR IT")
 parser <- add_argument(parser, "--covariates", help="a dataframe of additional covariates to regress for during outlier detection", default=NULL)
 parser <- add_argument(parser, "--correlation_summary_out",help="where to write correlation analysis summary files")
+parser <- add_arugment(parser, "--combined_segment_beta", help="where to write concatenated segment beta matrix")
+parser <- add_arugment(parser, "--combined_segment_depth", help="where to write concatenated segment depth matrix")
 parser <- add_argument(parser, "--sex_chrom_summary_out", help="where to write data frame of sex chromosome copy number estimates")
 parser <- add_argument(parser, "--global_meth_pcs_out", help="where to write global PC covariates file ")
 parser <- add_argument(parser, "--plot_out_dir", help="where to write correlation, PC, and sex plots")
 parser <- add_argument(parser, "--chrX_seqname", help="seqname of the X chromosome in the reference")
 parser <- add_argument(parser, "--chrY_seqname", help="seqname of the Y chromosome in the reference")
-
-args <- NULL
-args$seg_beta <- "../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr1.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr2.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr3.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr4.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr5.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr6.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr7.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr8.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr9.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr10.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr11.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr12.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr13.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr14.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr15.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr16.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr17.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr18.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr19.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr20.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr21.bed,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_betas.chrom_chr22.bed"
-args$seg_depth <- "../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr1.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr2.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr3.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr4.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr5.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr6.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr7.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr8.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr9.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr10.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr11.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr12.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr13.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr14.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr15.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr16.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr17.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr18.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr19.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr20.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr21.mat,../METAFORA_output/Population_methylation.tissue_Blood/Meth_segments.tissue_Blood.segment_coverage.chrom_chr22.mat"
-args$sex_seg_beta <- "SKIP"
-args$sex_seg_depth <- "SKIP"         
-args$correlation_summary_out <- "../METAFORA_output/Global_Methylation_PCA_tissue_Blood/Mean_pairwise_correlation_summary.txt"         
-args$sex_chrom_summary_out <- "../METAFORA_output/Global_Methylation_PCA_tissue_Blood/Sex_chromosome_estimates_summary.txt" 
-args$global_meth_pcs_out <- "../METAFORA_output/Global_Methylation_PCA_tissue_Blood/PCA_covariates.txt" 
-args$plot_out_dir <- "../METAFORA_output/Global_Methylation_PCA_tissue_Blood/"
-args$chrX_seqname <- "chrX"
-args$chrY_seqname <- "chrY"
-args$covariates <- "../MOTRPAC_pilot.covariates.txt"
-
 
 args <- parse_args(parser)
 plot_out <- args$plot_out_dir
@@ -48,6 +35,17 @@ seg_betas <- unlist(strsplit(args$seg_beta,","))
 seg_depths <- unlist(strsplit(args$seg_depth,","))
 segment_betas <- do.call(rbind, lapply(seg_betas, fread))
 segment_depths <- do.call(rbind, lapply(seg_depths, fread))
+
+fwrite(segment_betas, args$combined_segment_beta, row.names=F, col.names=T, sep="\t")
+fwrite(segment_depths, args$combined_segment_depth, row.names=F, col.names=T, sep="\t")
+
+sex_chroms = c(argv$chrX_seqname, argv$chrY_seqname)
+sex_segment_depths <- segment_depths[segment_betas$chrom %in% sex_chroms,]
+sex_segment_betas <- segment_betas[segment_betas$chrom %in% sex_chroms,]
+
+segment_depths <- segment_depths[!(segment_betas$chrom %in% sex_chroms),] #filter only to autosomes
+segment_betas <- segment_betas[!(segment_betas$chrom %in% sex_chroms),]
+
 beta.mat <- as.matrix(segment_betas[,8:ncol(segment_betas)]) 
 segment_depths <- as.matrix(segment_depths)
 
@@ -136,12 +134,7 @@ if (!args$covariates=="SKIP") {
 
 #sex  chromosome estimation analysis
 sex_chrom_copynumber <- data.frame()
-if(args$sex_seg_beta != "SKIP" && args$sex_seg_depth != "SKIP") {
-
-  sex_seg_betas <- unlist(strsplit(args$sex_seg_beta,","))
-  sex_seg_depths <- unlist(strsplit(args$sex_seg_depth,","))
-  sex_segment_betas <- do.call(rbind, lapply(sex_seg_betas, fread))
-  sex_segment_depths <- do.call(rbind, lapply(sex_seg_depths, fread))
+if(args$sex_chrom_estimation != "SKIP") {
   sex_beta.mat <- as.matrix(sex_segment_betas[,8:ncol(sex_segment_betas)]) 
   sex_segment_depths <- as.matrix(sex_segment_depths)
 
@@ -167,8 +160,6 @@ if(args$sex_seg_beta != "SKIP" && args$sex_seg_depth != "SKIP") {
   sex_chrom_map[XX_index] <- "XX"
   sex_chrom_map[XY_index] <- "XY"
   XX_index != XY_index
-  XX_index
-  XY_index
 
   sex_chrom_copynumber$cluster_probability <- sapply(1:nrow(sex_chrom_copynumber), function(x) {cluster=sex_chrom_clustering$classification[x]; 
                                                      pmvnorm(lower=as.numeric(sex_chrom_copynumber[x,2:3])-.5,

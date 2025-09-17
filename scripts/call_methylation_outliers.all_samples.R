@@ -40,7 +40,7 @@ segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this
   depth.sample <- depth %>% select("chromosome","start",all_of(this_sample))
   colnames(depth.sample) <- c("chromosome", "start", "sample_depth")
   
-  meth.sample <- pop_mean %>% left_join(betas.sample) %>% left_join(depth.sample) %>% mutate(cpg_num = 1:n())
+  meth.sample <- pop_mean %>% left_join(betas.sample,join_by(chromosome,start)) %>% left_join(depth.sample,join_by(chromosome,start)) %>% mutate(cpg_num = 1:n())
   meth.sample$sample_depth %<>% pmin(MAX_DEPTH) #cap depth at specified value to not inflate p-values for high-coverage samples
 
   D=median(depth.sample$sample_depth,na.rm=T)
@@ -161,7 +161,7 @@ call_outliers <-function(cand.segs, cpgs.gr, beta.mat, depth.mat, sample_id, MIN
 
 outlier_pipeline <- function(pop_mean, betas, depths, cpgs.gr, beta.mat, depth.mat, covariates, this_sample,this_chrom, min_seg_size, sample_id, MAX_DEPTH=100, MIN_ABS_ZSCORE=3, MIN_ABS_DELTA=0.25) {
         cat(paste0("Segmenting and calling outliers for sample: ",this_sample, " on chrom ", this_chrom, " . . . \n"))
-        cand.outliers <- segment_candidate_outliers(pop_mean, betas, depths, this_sample=this_sample, this_chrom=this_chrom, min_seg_size=MIN_SEG_SIZE, MAX_DEPTH=MAX_DEPTH)
+        cand.outliers <- segment_candidate_outliers(pop_mean, betas, depths, this_sample=this_sample, this_chrom=this_chrom, min_seg_size=min_seg_size, MAX_DEPTH=MAX_DEPTH)
         meth.sample = cand.outliers[["meth.sample"]]
         cand.segs <- cand.outliers[["cand.segs"]]
         if(nrow(cand.segs)==0||is.null(nrow(cand.segs))) { return(NULL) }
@@ -234,7 +234,7 @@ main <- function(argv) {
            batch_samples <- rownames(covariates[covariates$Batch == this_batch,])
         }
         rm(tmp.bmat)
-        rm(tmp.demat)
+        rm(tmp.dmat)
         gc()
 
         outliers <- lapply(batch_samples, function(x) {
@@ -260,7 +260,7 @@ main <- function(argv) {
     outlier_z_mat <- data.frame(chromosome=seqnames(outliers.merged), start=start(outliers.merged), end=end(outliers.merged), MERGE_ID=outliers.merged$ID, combined_mat)
     ## Save Data
     write.table(combined_outliers, file=argv$outlier_bed, row.names=F, col.names=T, quote=F)
-    write.table(outlier_z_matrix, file=argv$outlier_z_mat,row.names=F,col.names=T, quote=F)
+    write.table(outlier_z_mat, file=argv$outlier_z_mat,row.names=F,col.names=T, quote=F)
 }
  
 main(argv)

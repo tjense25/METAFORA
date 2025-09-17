@@ -13,7 +13,8 @@ library(bedr)
 
 parser <- arg_parser("Aggregate individual beta profiles to calculate population average")
 parser <- add_argument(parser, "--filelist", help="new line separated list of beta profiles file paths")
-parser <- add_argument(parser, "--chrom", help="chromosome to compute betas from")
+parser <- add_argument(parser, "--chrom", help="chromosome block to compute betas over")
+parser <- add_argument(parser, "--block_bed", help="Bed file of parallelization block coordinates")
 parser <- add_argument(parser, "--cpgs", help="bed file of all reference genome cpgs (only on autosomes)")
 parser <- add_argument(parser, "--min_segment_cpgs", help="minimum number of cpgs in segment for segmentation", type="integer", default=10)
 parser <- add_argument(parser, "--beta_mat", help="where to write beta matrix output")
@@ -25,12 +26,13 @@ parser <- add_argument(parser, "--threads", help="number of parallel threads to 
 argv <- parse_args(parser)
 ncores=as.integer(argv$threads)
 
-this_chrom <- argv$chrom
+this_block <- argv$chrom
+blocks <- fread(argv$block_bed)
+blocks %<>% mutate(coord=paste0(seqnames,":",start,"-",end))
+this_region <- blocks$coord[blocks$block==this_block]
 cat("Reading cpg reference bed  . . . \n")
-methylation.dat <- data.table(tabix(paste0(this_chrom,":1-1000000000"), argv$cpgs,verbose=F))
+methylation.dat <- data.table(tabix(this_region, argv$cpgs,verbose=F))
 colnames(methylation.dat) <- c("chromosome", "start","end")
-max_start<- max(methylation.dat$start) + 1
-this_region=paste0(this_chrom,":1-",max_start)
 min_cpg_number <- argv$min_segment_cpgs
 
 read_meth_sample <- function(methylation.dat, fname) {
@@ -104,7 +106,7 @@ breakup_large_segments <- function(segs, threshold=200, smaller_seg_size=100) {
     return(smaller_segments)
 }
 
-segment_blocks <- function(pop_mean, chrom, alpha = 0.01, minSeg = 10) {
+segment_blocks <- function(pop_mean, chrom_block, alpha = 0.01, minSeg = 10) {
   index <- c(1,which(diff(pop_mean$start) > 1000))
   last_start <- index[length(index)]
   last_end <- nrow(pop_mean)
@@ -122,8 +124,8 @@ segment_blocks <- function(pop_mean, chrom, alpha = 0.01, minSeg = 10) {
     segs$start <- block_beta$start[segs$start]
     segs$end <- block_beta$end[segs$end]
     segs$width <- segs$end - segs$start
-    segs$seqnames <- chrom
-    segs$seg_id <- paste0(chrom,"_",i,"_",1:nrow(segs)) 
+    segs$seqnames <- gsub(chrom_block, pattern="(\\w+)\\.\\d+",replacement="\\1")
+    segs$seg_id <- paste0(chrom_block,"_",i,"_",1:nrow(segs)) 
 	segs
     }))
   makeGRangesFromDataFrame(segments,keep.extra.columns = T)
@@ -133,7 +135,7 @@ betas.gr <- makeGRangesFromDataFrame(beta)
 #depth.mat[depth.mat > 20] <- 20
   
 #pop_mean = rowSums(betas.mat*depth.mat, na.rm=T) / rowSums(depth.mat, na.rm=T)
-meth_segs <- segment_blocks(pop_mean, this_chrom, minSeg = min_cpg_number)
+meth_segs <- segment_blocks(pop_mean, this_block, minSeg = min_cpg_number)
   
 cat("Summarizing methylation over segmented regions . . . \n")
 ol <- findOverlaps(meth_segs, betas.gr)
@@ -148,7 +150,7 @@ depth.mat <- depth.mat + 2
 # aggregate betas across each segment
 seg_beta <- as.matrix(((CpG_Identity %*% (beta.mat*depth.mat))) / ((CpG_Identity %*% depth.mat)))
 seg_depth <- as.matrix(CpG_Identity %*% depth.mat / rowSums(CpG_Identity))
-segments.df <- data.frame(chrom=this_chrom, start=start(meth_segs), end=end(meth_segs), seg_id=meth_segs$seg_id,
+segments.df <- data.frame(chrom=seqnames(meth_segs), start=start(meth_segs), end=end(meth_segs), seg_id=meth_segs$seg_id,
                num_cpg = meth_segs$num.mark, width=width(meth_segs), 
                cpg_density = meth_segs$num.mark/width(meth_segs), as.data.frame(seg_beta))
 

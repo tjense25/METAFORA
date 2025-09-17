@@ -48,7 +48,7 @@ plot_count_per_samp <- function(count_per_samp, label, color) {
     annotate("text", x=2,y=mean(count_per_samp$n)+2*sd(count_per_samp$n)+1,label="Mean + 2 s.d.", color="red") +
     geom_hline(aes(yintercept=mean(n)+3*sd(n)), color="red", linetype="dashed") + 
     annotate("text", x=2,y=mean(count_per_samp$n)+3*sd(count_per_samp$n)+1,label="Mean + 3 s.d.", color="red") +
-    theme(panel.border=element_rect(color="black", fill=NA,size=2)) +
+    theme(panel.border=element_rect(color="black", fill=NA,linewidth=2)) +
     xlab("rank-order samples by number of outliers") +  ylab("count of outlier per genome") + 
     ggtitle(label)
 }
@@ -84,18 +84,18 @@ for (i in 1:number_tissue) {
         scale_fill_manual(values=c("brown4", "cadetblue4"))
     ggsave(paste0(argv$plot_dir_out, "/Autosomes.number_outliers_per_genome.box_plot.tissue_", this_tissue,"logscale_y.pdf"))
 
-    if("sex" %in% colnames(covariates)) {
-        outliers$sex <- covariates$sex[match(outliers$Sample_name, covariates$Sample_name)]
-        outliers %>% mutate(sex=ifelse(sex,"XY", "XX")) %>% 
-            filter(CHROM_TYPE=="SEX_CHROM") %>% 
-            group_by(seqnames, Sample_name, sex) %>% summarize(hyper=sum(delta>0), hypo=sum(delta < 0)) %>% 
-            pivot_longer(c(hyper,hypo), names_to="direction", values_to="count") %>% 
-            ggplot(aes(sex, count, fill=direction)) + geom_boxplot() + theme_minimal() +
-            facet_grid(~seqnames) + 
-            theme(panel.border=element_rect(fill=NA)) + ggtitle("Sex Chromosomes") +
-            scale_fill_manual(values=c("brown4", "cadetblue4"))
-        ggsave(paste0(argv$plot_dir_out,"/Sex_chromosomes.number_outliers_stratified_by_sex.box_plot.tissue_",this_tissue,".pdf"))
-    }
+    #if("sex" %in% colnames(covariates)) {
+    #    outliers$sex <- covariates$sex[match(outliers$Sample_name, covariates$Sample_name)]
+    #    outliers %>% mutate(sex=ifelse(sex,"XY", "XX")) %>% 
+    #        filter(CHROM_TYPE=="SEX_CHROM") %>% 
+    #        group_by(seqnames, Sample_name, sex) %>% summarize(hyper=sum(delta>0), hypo=sum(delta < 0)) %>% 
+    #        pivot_longer(c(hyper,hypo), names_to="direction", values_to="count") %>% 
+    #        ggplot(aes(sex, count, fill=direction)) + geom_boxplot() + theme_minimal() +
+    #        facet_grid(~seqnames) + 
+    #        theme(panel.border=element_rect(fill=NA)) + ggtitle("Sex Chromosomes") +
+    #        scale_fill_manual(values=c("brown4", "cadetblue4"))
+    #    ggsave(paste0(argv$plot_dir_out,"/Sex_chromosomes.number_outliers_stratified_by_sex.box_plot.tissue_",this_tissue,".pdf"))
+    #}
 
     ## Outlier counts per sample
     count_per_samp <- outliers %>% group_by(Sample_name, Batch) %>% summarize(n=n()) %>% ungroup() %>% arrange(n) %>% mutate(rank=1:length(n)) %>% 
