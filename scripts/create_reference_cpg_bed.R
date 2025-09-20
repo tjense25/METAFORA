@@ -22,7 +22,7 @@ cpgs <- lapply(valid_chroms, function(x) start(matchPattern("CG", ref[[x]])))
 cpgr <- do.call(c, lapply(1:length(valid_chroms), function(x) GRanges(valid_chroms[x], IRanges(cpgs[[x]],width=1))))
 cpgr %<>% as.data.frame()
 cpgr %<>% select(seqnames,start,end) %>% mutate(start = start -1, end=end-1)
-fwrite(cpgr, argv$cpg_bed_out, col.names =F, row.names=F, sep="\t", scipen=999)
+fwrite(cpgr, argv$cpg_bed_out, col.names=F, row.names=F, sep="\t", scipen=999)
 
 colnames(cpgr) <- c("seqnames", "start", "end")
 
@@ -40,4 +40,4 @@ cpg_blocks <- cpgr %>% filter(large_diff==1) %>% group_by(seqnames) %>%
     select(seqnames, start, end, block, num_cpgs)
 cpg_blocks
 
-fwrite(cpg_blocks, argv$cpg_bed_out, col.names=T, row.names=T, sep="\t")
+fwrite(cpg_blocks, argv$block_bed_out, col.names=T, row.names=T, sep="\t")

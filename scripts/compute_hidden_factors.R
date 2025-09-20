@@ -18,11 +18,10 @@ library(matrixStats)
 parser <- arg_parser("Script to compute global variation PCs in methylation profiles and auto-detect outliers")
 parser <- add_argument(parser, "--seg_beta", help = "comma-separated list of summarized segment betas from segmentation for each autosome")
 parser <- add_argument(parser, "--seg_depth", help = "comma-separated list of summarized segment depths from segmentation for each autosome")
-parser <- add_argument(parser, "--sex_chrom_estimation", help="whether to skip sex chrom estimation or to GO FOR IT")
 parser <- add_argument(parser, "--covariates", help="a dataframe of additional covariates to regress for during outlier detection", default=NULL)
 parser <- add_argument(parser, "--correlation_summary_out",help="where to write correlation analysis summary files")
-parser <- add_arugment(parser, "--combined_segment_beta", help="where to write concatenated segment beta matrix")
-parser <- add_arugment(parser, "--combined_segment_depth", help="where to write concatenated segment depth matrix")
+parser <- add_argument(parser, "--combined_segment_beta", help="where to write concatenated segment beta matrix")
+parser <- add_argument(parser, "--combined_segment_depth", help="where to write concatenated segment depth matrix")
 parser <- add_argument(parser, "--sex_chrom_summary_out", help="where to write data frame of sex chromosome copy number estimates")
 parser <- add_argument(parser, "--global_meth_pcs_out", help="where to write global PC covariates file ")
 parser <- add_argument(parser, "--plot_out_dir", help="where to write correlation, PC, and sex plots")
@@ -33,18 +32,17 @@ args <- parse_args(parser)
 plot_out <- args$plot_out_dir
 seg_betas <- unlist(strsplit(args$seg_beta,","))
 seg_depths <- unlist(strsplit(args$seg_depth,","))
-segment_betas <- do.call(rbind, lapply(seg_betas, fread))
-segment_depths <- do.call(rbind, lapply(seg_depths, fread))
+segment_betas_c <- do.call(rbind, lapply(seg_betas, fread))
+segment_depths_c <- do.call(rbind, lapply(seg_depths, fread))
 
 fwrite(segment_betas, args$combined_segment_beta, row.names=F, col.names=T, sep="\t")
 fwrite(segment_depths, args$combined_segment_depth, row.names=F, col.names=T, sep="\t")
 
-sex_chroms = c(argv$chrX_seqname, argv$chrY_seqname)
-sex_segment_depths <- segment_depths[segment_betas$chrom %in% sex_chroms,]
-sex_segment_betas <- segment_betas[segment_betas$chrom %in% sex_chroms,]
-
-segment_depths <- segment_depths[!(segment_betas$chrom %in% sex_chroms),] #filter only to autosomes
-segment_betas <- segment_betas[!(segment_betas$chrom %in% sex_chroms),]
+sex_chroms = c(args$chrX_seqname, args$chrY_seqname)
+if (args$chrX_seqname != "SKIP" && args$chrY_seqname!="SKIP") {
+  segment_depths <- segment_depths_c[!(segment_betas$chrom %in% sex_chroms),] #filter only to autosomes
+  segment_betas <- segment_betas_c[!(segment_betas$chrom %in% sex_chroms),]
+}
 
 beta.mat <- as.matrix(segment_betas[,8:ncol(segment_betas)]) 
 segment_depths <- as.matrix(segment_depths)
@@ -134,10 +132,11 @@ if (!args$covariates=="SKIP") {
 
 #sex  chromosome estimation analysis
 sex_chrom_copynumber <- data.frame()
-if(args$sex_chrom_estimation != "SKIP") {
+if(args$chrX_seqname!="SKIP"&&args$chrY_seqname!="SKIP") {
+  sex_segment_depths <- segment_depths_c[segment_betas$chrom %in% sex_chroms,]
+  sex_segment_betas <- segment_betas_c[segment_betas$chrom %in% sex_chroms,]
   sex_beta.mat <- as.matrix(sex_segment_betas[,8:ncol(sex_segment_betas)]) 
   sex_segment_depths <- as.matrix(sex_segment_depths)
-
 
   chrX_median_depth <- colMedians(sex_segment_depths[sex_segment_betas$chrom == args$chrX_seqname,])
   chrY_median_depth <- colMedians(sex_segment_depths[sex_segment_betas$chrom == args$chrY_seqname,])

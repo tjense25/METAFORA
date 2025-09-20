@@ -21,10 +21,13 @@ parser <- add_argument(parser, "--depth_mat", help="input sample depth matrix")
 parser <- add_argument(parser, "--global_meth_pcs", help="output global methylation PCs")
 parser <- add_argument(parser, "--outlier_bed", help="output global methylation region bed with zscores to this file")
 parser <- add_argument(parser, "--outlier_z_mat", help="output outlier_region x samples matrix of zscores to this file")
+parser <- add_argument(parser, "--joint_called_z_mat", help="output merged outlier region jointly called zscore matrix to this file")
 parser <- add_argument(parser, "--min_abs_zscore", help="minimum absolute zscore threshold for calling methylation region an outlier", type="integer", default=3)
 parser <- add_argument(parser, "--min_seg_size", help="minimum number of cpgs in a region to call a candidate outlier during segmentation", type="integer", default=20)
 parser <- add_argument(parser, "--min_abs_delta", help="minimum effect size delta (sample_average_methylation - population_median_methylation) for calling methylation region an outlier", type="numeric", default=0.25)
 parser <- add_argument(parser, "--max_depth", help="maxmimum depth of read coverage to consider. (regions higher than this depth will be effectively downsampled)", type="integer", default=30)
+parser <- add_argument(parser, "--chrX_seqname", help="chrX seqname in supplied reference genome")
+parser <- add_argument(parser, "--chrY_seqname", help="chrY seqname in supplied reference genome")
 parser <- add_argument(parser, "--threads", help="number of threads to use for paralellized chrom block segmentation", default=1)
  
 argv <- parse_args(parser)
@@ -33,7 +36,7 @@ ncores=as.integer(argv$threads)
 MIN_Z_THRESH <- function(D) {1.172304 + .0355*D} #optimized parameters accounting for depth from simulation experiment to acheive 90% power for absolute deltas of 0.25
 MAX_Z_THRESH <- function(D) {5.5 + 0.16654*D} #optimized  parameters accounting for depth for zscores observed for 0.9 deltas 
 
-segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this_chrom, segment_alpha=.01, min_seg_size = 10, MAX_DEPTH=100) {
+segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this_chrom, this_block, segment_alpha=.01, min_seg_size = 10, MAX_DEPTH=100) {
   betas.sample <- betas %>% select("chromosome","start",all_of(this_sample))
   colnames(betas.sample) <- c("chromosome","start","sample_beta")
   
@@ -72,12 +75,11 @@ segment_candidate_outliers <- function(pop_mean, betas, depth, this_sample, this
             tmp.meth <- meth.sample[blocks$start[i]:blocks$end[i],]
             as.data.frame(fastseg(tmp.meth$deviance_score, alpha=segment_alpha, minSeg=10, segMedianT = c(MIN_Z,-MIN_Z))) %>%
                   mutate(start = tmp.meth$start[start], end=tmp.meth$start[end],width=end-start, seqnames=this_chrom,ID=this_sample)
-              #seg_id=paste0(this_chrom,"_",this_sample,"_",1:nrow(segs)))
             }, mc.cores=ncores) %>% bind_rows()
   if(is.null(cand.segs)||nrow(cand.segs)==0) { 
         return(list("meth.sample"=meth.sample,"cand.segs"=NULL))
   }
-  cand.segs$seg_id=paste0(this_chrom,"_",this_sample,"_",1:nrow(cand.segs))
+  cand.segs$seg_id=paste0(this_block,"_",this_sample,"_",1:nrow(cand.segs))
 
   cand.segs <- cand.segs[!is.na(cand.segs$`seg.mean`),] #remove cand segments that are NA over all cpgs
   cand.segs <- cand.segs[abs(cand.segs$seg.mean) > MIN_Z,]
@@ -159,29 +161,37 @@ call_outliers <-function(cand.segs, cpgs.gr, beta.mat, depth.mat, sample_id, MIN
   return(list("outlier.segs"=cand.segs,"z.mat"=zscores))
 }
 
-outlier_pipeline <- function(pop_mean, betas, depths, cpgs.gr, beta.mat, depth.mat, covariates, this_sample,this_chrom, min_seg_size, sample_id, MAX_DEPTH=100, MIN_ABS_ZSCORE=3, MIN_ABS_DELTA=0.25) {
-        cat(paste0("Segmenting and calling outliers for sample: ",this_sample, " on chrom ", this_chrom, " . . . \n"))
-        cand.outliers <- segment_candidate_outliers(pop_mean, betas, depths, this_sample=this_sample, this_chrom=this_chrom, min_seg_size=min_seg_size, MAX_DEPTH=MAX_DEPTH)
-        meth.sample = cand.outliers[["meth.sample"]]
+outlier_pipeline <- function(pop_mean, betas, depths, cpgs.gr, beta.mat, depth.mat, covariates, this_sample,this_chrom, this_block, chrom_type, min_seg_size, sample_id, MAX_DEPTH=100, MIN_ABS_ZSCORE=3, MIN_ABS_DELTA=0.25) {
+        if(chrom_type=="SEX_CHROM") {
+            covariates <- covariates[,!colnames(covariates) %in% c("sex")]
+        }
+        cat(paste0("Segmenting and calling outliers for sample: ",this_sample, " on chrom ", this_block, " . . . \n"))
+        cand.outliers <- segment_candidate_outliers(pop_mean, betas, depths, this_sample=this_sample, this_chrom=this_chrom, this_block=this_block,min_seg_size=min_seg_size, MAX_DEPTH=MAX_DEPTH)
+        meth.sample <- cand.outliers[["meth.sample"]]
         cand.segs <- cand.outliers[["cand.segs"]]
-        if(nrow(cand.segs)==0||is.null(nrow(cand.segs))) { return(NULL) }
+        if(nrow(cand.segs)==0||is.null(nrow(cand.segs))) { return(list("segs"=NULL,"zscores"=NULL)) }
         # calculate region aggregated M values and call zscores across samples
         outliers <- call_outliers(cand.segs, cpgs.gr, beta.mat, depth.mat, sample_id=this_sample, MIN_ABS_ZSCORE=MIN_ABS_ZSCORE, covariates=covariates)
         outlier.segs <- outliers[["outlier.segs"]]
         outlier_z_matrix <- outliers[["z.mat"]]
-        outlier.segs
-        if(nrow(outlier.segs)==0||is.null(nrow(outlier.segs))) { return(NULL) }
+        if(nrow(outlier.segs)==0||is.null(nrow(outlier.segs))) { return(list("segs"=NULL,"zscores"=NULL)) }
         keep <- (abs(outlier.segs$delta) > MIN_ABS_DELTA)
         outlier_z_matrix <- outlier_z_matrix[keep,]
         outlier.segs <- outlier.segs[keep,]
-        if(nrow(outlier.segs)==0||is.null(nrow(outlier.segs))) { return(NULL) }
-        return(outlier.segs)
+        if(nrow(outlier.segs)==0||is.null(nrow(outlier.segs))) { return(list("segs"=NULL,"zscores"=NULL)) }
+        outlier_z_matrix <- matrix(outlier_z_matrix,nrow=nrow(outlier.segs))
+        return(list("segs"=outlier.segs,"zscores"=outlier_z_matrix))
 }
 
 main <- function(argv) {
     # Read in data
     cat("Reading in data . . . \n")
-    this_chrom <- argv$chrom
+    this_block <- argv$chrom
+    this_chrom <- gsub(this_block, pattern="(\\w+)\\.\\d+", replacement="\\1")
+    chrX_seqname <- argv$chrX_seqname
+    chrY_seqname <- argv$chrY_seqname
+    chrom_type <- ifelse(this_chrom %in% c(chrX_seqname, chrY_seqname), yes="SEX_CHROM", no="AUTOSOME")
+
     betas <- fread(argv$beta_mat)
     depths <- fread(argv$depth_mat)
 
@@ -194,18 +204,15 @@ main <- function(argv) {
     covariates <- NULL
     if(!is.null(argv$global_meth_pcs)) {
         covariates <- read.table(argv$global_meth_pcs, row.names=1, header=T) 
-        covariates
-        colnames(betas)
         # REMOVE GLOBAL OUTLIERS + RECOMPUTE POP MEAN
         cols=colnames(betas)[colnames(betas) %in% c("chromosome", "start", "end", rownames(covariates))]
         betas <- betas[,..cols]
         depths <- depths[,..cols]
     }
 
-
- 
     ## Correct pop mean for specific batch
     beta.mat <- as.matrix(betas[,4:ncol(betas)])
+    original_col_names <- colnames(beta.mat)
     depth.mat <- as.matrix(depths[,4:ncol(depths)])
     beta.mat[is.na(beta.mat)] <- 0
     depth.mat[is.na(depth.mat)] <- 0
@@ -215,44 +222,70 @@ main <- function(argv) {
         unique_batches <- list(NULL)
     }
 
+    if(chrom_type=="SEX_CHROM") {
+        #set batches to be different predicted sex
+        unique_batches <- c("XY")
+        if(this_chrom==chrX_seqname) { unique_batches <- c(unique_batches, "XX") }
+    }
     combined_outliers <- NULL
+    combined_zscores <- NULL
     for (this_batch in unique_batches) {
         cat(paste0("Calling outliers for samples in Batch ", this_batch, " . . . \n"))
         cat("Correcting population mean for sample batch . . .\n")
         tmp.bmat <- beta.mat
         tmp.dmat <- depth.mat
+        tmp.covariates <- covariates
         #make population mean specific to Batch to make less susceptible to batch effects:
-        if (sum(covariates$Batch==this_batch) > 20) {
+        if (chrom_type=="AUTOSOME"&&sum(covariates$Batch==this_batch) > 20) {
             tmp.bmat <- tmp.bmat[,covariates$Batch == this_batch]
             tmp.dmat <- tmp.dmat[,covariates$Batch == this_batch]
+        } else if (chrom_type=="SEX_CHROM") { 
+            #subset samples to just those of same this 
+            tmp.bmat <- tmp.bmat[,covariates$sex == (this_batch=="XY")]
+            tmp.dmat <- tmp.dmat[,covariates$sex == (this_batch=="XY")]
+            tmp.covariates <- tmp.covariates[covariates$sex==(this_batch=="XY"),]
         }
         pop_mean <- (rowSums(tmp.bmat*tmp.dmat) + rowSums(tmp.dmat > 0)) / (rowSums(tmp.dmat) + 2*rowSums(tmp.dmat > 0))
         total_depth <- rowSums(tmp.dmat, na.rm=T)
         pop_mean <- data.table(betas[,1:3], total_depth, mean_beta=pop_mean)
         batch_samples <- colnames(tmp.bmat)
-        if (!is.null(this_batch)) {
+        if (chrom_type=="AUTOSOME"&&!is.null(this_batch)) {
            batch_samples <- rownames(covariates[covariates$Batch == this_batch,])
         }
-        rm(tmp.bmat)
-        rm(tmp.dmat)
-        gc()
 
-        outliers <- lapply(batch_samples, function(x) {
-                   outlier_pipeline(pop_mean,betas,depths,cpgs.gr,beta.mat,depth.mat,covariates,
-                                    this_sample=x,this_chrom=this_chrom,min_seg_size=MIN_SEG_SIZE,
+        if(chrom_type=="AUTOSOME") {
+            #RESTORE the tmp matrix for autosomes
+            tmp.bmat <- beta.mat
+            tmp.dmat <- depth.mat
+        }
+        outlier_results <- lapply(batch_samples, function(x) {
+                   outlier_pipeline(pop_mean,betas,depths,cpgs.gr,tmp.bmat,tmp.dmat,tmp.covariates,
+                                    this_sample=x,this_chrom=this_chrom,this_block=this_block,chrom_type=chrom_type,min_seg_size=MIN_SEG_SIZE,
                                     MAX_DEPTH=MAX_DEPTH,MIN_ABS_ZSCORE=MIN_ABS_ZSCORE,MIN_ABS_DELTA=MIN_ABS_DELTA) 
-                }) %>% bind_rows
+                })
+        outliers <- lapply(outlier_results, function(x) x$segs) %>% bind_rows
+        zscores <- do.call(rbind,lapply(outlier_results, function(x) x$zscores))
+        zscores_original_dim <- matrix(NA, nrow=nrow(outliers), ncol=length(original_col_names))
+        colnames(zscores_original_dim) <- original_col_names
+        zscores_original_dim[,colnames(tmp.bmat)] <- zscores
         cat("\n")
         combined_outliers <- rbind(combined_outliers, outliers)
+        combined_zscores <- rbind(combined_zscores, zscores_original_dim)
     }
-
     cat("Merging sample-level outliers and computing joint cohort z-scores . . . \n")
+    if(nrow(combined_outleirs)==0||is.null(nrow(combined_outliers))) { 
+        write.table(NULL, file=argv$outlier_bed, row.names=F, col.names=T, quote=F)
+        write.table(NULL, file=argv$outlier_z_mat,row.names=F,col.names=T, quote=F)
+        write.table(NULL, file=argv$joint_called_z_mat,row.names=F,col.names=T, quote=F)
+        return()
+    }
     combined_outliers$Tissue <- argv$tissue
-    combined_outliers$CHROM_TYPE <- "AUTOSOME"
+    combined_outliers$CHROM_TYPE <- chrom_type
+    rownames(combined_zscores) <- combined_outliers$seg_id
 
     outliers.gr <- makeGRangesFromDataFrame(combined_outliers)
     outliers.merged <- outliers.gr %>% GenomicRanges::reduce()
-    outliers.merged$ID <- paste0("METAFORA_",1:length(outliers.merged),"_",this_chrom)
+    outliers.merged$ID <- paste0("METAFORA_",1:length(outliers.merged),"_",this_block)
     outliers.gr %<>% join_overlap_left(outliers.merged) 
     combined_outliers$MERGE_ID <- outliers.gr$ID
 
@@ -260,7 +293,8 @@ main <- function(argv) {
     outlier_z_mat <- data.frame(chromosome=seqnames(outliers.merged), start=start(outliers.merged), end=end(outliers.merged), MERGE_ID=outliers.merged$ID, combined_mat)
     ## Save Data
     write.table(combined_outliers, file=argv$outlier_bed, row.names=F, col.names=T, quote=F)
-    write.table(outlier_z_mat, file=argv$outlier_z_mat,row.names=F,col.names=T, quote=F)
+    write.table(combined_zscores, file=argv$outlier_z_mat,row.names=T,col.names=T, quote=F)
+    write.table(outlier_z_mat, file=argv$joint_called_z_mat,row.names=T,col.names=T, quote=F)
 }
  
 main(argv)

@@ -85,24 +85,24 @@ rule all:
       join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
 
 def get_block_betas(wildcards):
-  block_out = pd.read_table(checkpoints.create_cpg_reference.output[2])
-  blocks = list(block_out.block)
+  block_out = pd.read_table(checkpoints.create_cpg_reference.get(**wildcards).output[2])
+  blocks = [ row.block for i,row in block_out.iterrows() if row.seqnames in autosomes+sex_chroms]
   return expand(join(outdir,"Population_methylation.tissue_{{tissue}}/Meth_segments.tissue_{{tissue}}.segment_betas.chrom_{chr}.bed"),chr=blocks)
 
-def get_block_betas(wildcards):
-  block_out = pd.read_table(checkpoints.create_cpg_reference.output[2])
-  blocks = list(block_out.block)
+def get_block_depths(wildcards):
+  block_out = pd.read_table(checkpoints.create_cpg_reference.get(**wildcards).output[2])
+  blocks = [ row.block for i,row in block_out.iterrows() if row.seqnames in autosomes+sex_chroms]
   return expand(join(outdir,"Population_methylation.tissue_{{tissue}}/Meth_segments.tissue_{{tissue}}.segment_coverage.chrom_{chr}.mat"),chr=blocks)
 
 def get_block_outlier_beds(wildcards):
-  block_out = pd.read_table(checkpoints.create_cpg_reference.output[2])
-  blocks = list(block_out.block)
-  return expand(join(outdir, "METAFORA_methylation_outlier_regions.tissue_{{tissue}}.chrom_{chr}.bed"), chr=blocks),
+  block_out = pd.read_table(checkpoints.create_cpg_reference.get(**wildcards).output[2])
+  blocks = [ row.block for i,row in block_out.iterrows() if row.seqnames in autosomes+sex_chroms]
+  return expand(join(outdir, "METAFORA_methylation_outlier_regions.tissue_{{tissue}}.chrom_{chr}.bed"), chr=blocks)
 
 def get_block_zscore_mats(wildcards):
-  block_out = pd.read_table(checkpoints.create_cpg_reference.output[2])
-  blocks = list(block_out.block)
-  expand(join(outdir, "METAFORA_methylation_outlier_regions.tissue_{{tissue}}.zscore.chrom_{chr}.mat"), chr=blocks) 
+  block_out = pd.read_table(checkpoints.create_cpg_reference.get(**wildcards).output[2])
+  blocks = [ row.block for i,row in block_out.iterrows() if row.seqnames in autosomes+sex_chroms]
+  return expand(join(outdir, "METAFORA_methylation_outlier_regions.tissue_{{tissue}}.merged_joint_called_zscore.chrom_{chr}.mat"), chr=blocks) 
 
 checkpoint create_cpg_reference:
     threads: 16
@@ -125,7 +125,9 @@ checkpoint create_cpg_reference:
       Rscript {params.script} \
           --reference {input.ref} \
           --valid_chroms {params.valid_chroms} \
-          --cpg_bed_out {params.tmp_bed}
+          --block_size {params.block_size} \
+          --cpg_bed_out {params.tmp_bed} \
+          --block_bed_out {output.block_bed}
 
       bgzip {params.tmp_bed}
       tabix -p bed {output.cpg_bed}
@@ -274,10 +276,10 @@ rule format_pacbio_hap:
   """
   
 rule create_tissue_sample_reference:
-  threads: 16
+  threads: 8
   resources:
     time=24,
-    mem=512
+    mem=128
   input:
     meth_beds = get_input_samples,
     block_bed = join(outdir, "Chromosome_block.paralleliztion.bed"),
@@ -287,61 +289,36 @@ rule create_tissue_sample_reference:
     script = "scripts/calculate_population_mean_betas.R",
     tmp_beta = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.betas.mat"),
     tmp_depth = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.coverage.mat"),
-    tmp_mean = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.population_mean_betas.tsv"),
     min_segment_cpgs = MIN_SEG_SIZE
   output:
     beta_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.betas.mat.gz"),
     beta_tbi = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.betas.mat.gz.tbi"),
     depth_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.coverage.mat.gz"),
     depth_tbi = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.coverage.mat.gz.tbi"),
-    mean = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.population_mean_betas.tsv.gz"),
-    mean_tbi = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.population_mean_betas.tsv.gz.tbi"),
-    seg_beta = join(outdir,"Population_methylation.tissue_{tissue}/Meth_segments.tissue_{tissue}.segment_betas.chrom_{chr}.bed"),
-    seg_depth = join(outdir,"Population_methylation.tissue_{tissue}/Meth_segments.tissue_{tissue}.segment_coverage.chrom_{chr}.mat")
+    seg_beta = temp(join(outdir,"Population_methylation.tissue_{tissue}/Meth_segments.tissue_{tissue}.segment_betas.chrom_{chr}.bed")),
+    seg_depth = temp(join(outdir,"Population_methylation.tissue_{tissue}/Meth_segments.tissue_{tissue}.segment_coverage.chrom_{chr}.mat"))
   conda: "envs/metafora.yaml"
   shell: """
     ls {input.meth_beds} > {params.filelist}
     Rscript {params.script} \
         --filelist {params.filelist} \
         --chrom {wildcards.chr} \
-        --block_bed {input.block_bed} \ 
+        --block_bed {input.block_bed} \
         --cpgs {input.cpg_bed} \
         --min_segment_cpgs {params.min_segment_cpgs} \
         --beta_mat {params.tmp_beta} \
         --depth_mat {params.tmp_depth} \
-        --pop_mean {params.tmp_mean} \
         --segment_beta {output.seg_beta} \
         --segment_depth {output.seg_depth} \
         --threads {threads}
-    rm {params.filelist}
+    rm -f {params.filelist}
 
     bgzip {params.tmp_beta}
     bgzip {params.tmp_depth}
-    bgzip {params.tmp_mean}
 
     tabix -p bed -S 1 {output.beta_mat}
     tabix -p bed -S 1 {output.depth_mat}
-    tabix -p bed -S 1 {output.mean}
   """
-
-#rule append_samples_to_reference:
-#  threads: 1
-#  resources:
-#    time=24,
-#    mem=128 
-#  input: 
-#    meth_beds = get_input_samples,
-#    reference_beta_mat = config["sample_reference"]["beta_mat"],
-#    reference_depth_mat = config["sample_reference"]["depth_mat"]
-#  output:
-#    beta_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.betas.mat.gz"),
-#    beta_tbi = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.betas.mat.gz.tbi"),
-#    depth_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.coverage.mat.gz"),
-#    depth_tbi = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.coverage.mat.gz.tbi"),
-#    mean = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.population_mean_betas.tsv.gz"),
-#    mean_tbi = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.population_mean_betas.tsv.gz.tbi"),
-#    seg_beta = join(outdir,"Population_methylation.tissue_{tissue}/Meth_segments.tissue_{tissue}.segment_betas.chrom_{chr}.bed"),
-#    seg_depth = join(outdir,"Population_methylation.tissue_{tissue}/Meth_segments.tissue_{tissue}.segment_coverage.chrom_{chr}.mat")
 
 rule compute_hidden_factors:
   threads: 16
@@ -353,9 +330,8 @@ rule compute_hidden_factors:
     seg_depth = get_block_depths
   params:
     script = "scripts/compute_hidden_factors.R",
-    seg_beta = lambda w,input: ','.join(list(input.seg_beta))
-    seg_depth = lambda w,input: ','.join(list(input.seg_depth))
-    sex_chrom_estimation = "SKIP" if SKIP_SEX_CHROMOSOME_ESTIMATION == "TRUE" else "go_for_it"
+    seg_beta = lambda w,input: ','.join(list(input.seg_beta)),
+    seg_depth = lambda w,input: ','.join(list(input.seg_depth)),
     chrX_seqname =  chrX_seqname,
     chrY_seqname =  chrY_seqname,
     covariates = config["covariates"] if "covariates" in config else "SKIP",
@@ -371,7 +347,6 @@ rule compute_hidden_factors:
     Rscript {params.script} \
         --seg_beta {params.seg_beta} \
         --seg_depth {params.seg_depth} \
-        --sex_chrom_estimation {params.sex_chrom_estimation} \
         --correlation_summary_out {output.cor_summary_table} \
         --sex_chrom_summary_out {output.sex_summary_table} \
         --global_meth_pcs_out {output.global_pcs} \
@@ -387,20 +362,23 @@ rule call_outliers_combined:
   threads:16
   resources:
     time=48,
-    mem=512
+    mem=128
   input:
     beta_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.betas.mat.gz"),
     depth_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.coverage.mat.gz"),
     global_pcs = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt")
   params:
     script = "scripts/call_methylation_outliers.all_samples.R",
+    chrX_seqname =  chrX_seqname,
+    chrY_seqname =  chrY_seqname,
     MAX_DEPTH = MAX_DEPTH, 
     MIN_SEG_SIZE = MIN_SEG_SIZE, 
     MIN_ABS_ZSCORE = MIN_ABS_ZSCORE, 
     MIN_ABS_DELTA = MIN_ABS_DELTA 
   output:
-    outlier_bed = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.chrom_{chr}.bed"),
-    outlier_z_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.zscore.chrom_{chr}.mat")
+    outlier_bed = temp(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.chrom_{chr}.bed")),
+    outlier_z_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.sample_level_zscore.chrom_{chr}.mat"),
+    joint_called_z_mat = temp(join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.merged_joint_called_zscore.chrom_{chr}.mat"))
   conda: 'envs/metafora.yaml'
   shell: """ 
     Rscript {params.script} \
@@ -410,11 +388,14 @@ rule call_outliers_combined:
         --global_meth_pcs {input.global_pcs} \
         --outlier_bed {output.outlier_bed} \
         --outlier_z_mat {output.outlier_z_mat} \
+        --joint_called_z_mat {output.joint_called_z_mat} \
         --min_seg_size {params.MIN_SEG_SIZE} \
         --min_abs_zscore {params.MIN_ABS_ZSCORE} \
         --min_abs_delta {params.MIN_ABS_DELTA} \
         --max_depth {params.MAX_DEPTH} \
         --tissue {wildcards.tissue} \
+        --chrX_seqname {params.chrX_seqname} \
+        --chrY_seqname {params.chrY_seqname} \
         --threads {threads}
   """
 
@@ -425,10 +406,10 @@ rule combine_all_sample_outliers:
     mem=12
   input:
     beds = get_block_outlier_beds, 
-    mats = get_block_zscore_mats, 
+    mats = get_block_zscore_mats
   output:
     outlier_bed = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.bed"),
-    outlier_z_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.zscore.mat")
+    outlier_z_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.merged_joint_called_zscore.mat")
   shell: """ 
     header=$(for i in $(ls {input.beds}); do head -1 $i; done | sort | tail -1)
     echo -e "$header" > {output.outlier_bed}
@@ -437,128 +418,6 @@ rule combine_all_sample_outliers:
     header=$(for i in $(ls {input.mats}); do head -1 $i; done | sort | tail -1) 
     echo -e "$header" > {output.outlier_z_mat}
     cat {input.mats} | grep -v "$header" | grep -v "^$" >> {output.outlier_z_mat} || true
-  """
-
-rule call_outliers:
-  threads: 4
-  resources:
-    time=16,
-    mem=64
-  input:
-    beta_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.betas.mat.gz"),
-    depth_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.coverage.mat.gz"),
-    global_pcs = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt")
-  params:
-    script = "scripts/call_methylation_outliers.R",
-    MAX_DEPTH = MAX_DEPTH, 
-    MIN_SEG_SIZE = MIN_SEG_SIZE, 
-    MIN_ABS_ZSCORE = MIN_ABS_ZSCORE, 
-    MIN_ABS_DELTA = MIN_ABS_DELTA 
-  output:
-    outlier_bed = temp(join(outdir,"sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.chrom_{chr}.bed")),
-    outlier_z_mat = temp(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.zscore.chrom_{chr}.mat"))
-  conda: 'envs/metafora.yaml'
-  shell: """ 
-    outlier_plot_dir="$(dirname {output.outlier_bed})/outlier_plots"
-    mkdir -p $outlier_plot_dir
-    Rscript {params.script} \
-        --sample {wildcards.sample} \
-        --chrom {wildcards.chr} \
-        --beta_mat {input.beta_mat} \
-        --depth_mat {input.depth_mat} \
-        --global_meth_pcs {input.global_pcs} \
-        --outlier_bed {output.outlier_bed} \
-        --outlier_z_mat {output.outlier_z_mat} \
-        --plot_dir $outlier_plot_dir \
-        --min_seg_size {params.MIN_SEG_SIZE} \
-        --min_abs_zscore {params.MIN_ABS_ZSCORE} \
-        --min_abs_delta {params.MIN_ABS_DELTA} \
-        --max_depth {params.MAX_DEPTH} \
-        --tissue {wildcards.tissue} \
-        --threads {threads}
-  """
-
-rule call_outliers_sex_chroms:
-  threads: 4
-  resources:
-    time=16,
-    mem=128
-  input:
-    beta_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.betas.mat.gz"),
-    depth_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.coverage.mat.gz"),
-    global_pcs = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt"),
-    sex_chrom_df = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/Sex_chromosome_estimates_summary.txt")
-  params:
-    script = "scripts/call_methylation_outliers.sex_chromosomes.R",
-    chrY_seqname = chrY_seqname,
-    MAX_DEPTH = MAX_DEPTH, 
-    MIN_SEG_SIZE = MIN_SEG_SIZE, 
-    MIN_ABS_ZSCORE = MIN_ABS_ZSCORE, 
-    MIN_ABS_DELTA = MIN_ABS_DELTA 
-  output:
-    outlier_bed = temp(join(outdir,"sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.sex_chroms.chrom_{chr}.bed")),
-    outlier_z_mat = temp(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.sex_chroms.zscore.chrom_{chr}.mat"))
-  conda: 'envs/metafora.yaml'
-  shell: """ 
-    outlier_plot_dir="$(dirname {output.outlier_bed})/outlier_plots"
-    mkdir -p $outlier_plot_dir
-    Rscript {params.script} \
-        --sample {wildcards.sample} \
-        --chrom {wildcards.chr} \
-        --beta_mat {input.beta_mat} \
-        --depth_mat {input.depth_mat} \
-        --global_meth_pcs {input.global_pcs} \
-        --sex_chromosome_tsv {input.sex_chrom_df} \
-        --chrY_seqname {params.chrY_seqname} \
-        --outlier_bed {output.outlier_bed} \
-        --outlier_z_mat {output.outlier_z_mat} \
-        --plot_dir $outlier_plot_dir \
-        --min_seg_size {params.MIN_SEG_SIZE} \
-        --min_abs_zscore {params.MIN_ABS_ZSCORE} \
-        --min_abs_delta {params.MIN_ABS_DELTA} \
-        --max_depth {params.MAX_DEPTH} \
-        --tissue {wildcards.tissue} \
-        --threads {threads}
-  """
-
-rule combine_chrom_outliers:
-  threads: 1 
-  resources:
-    time=4,
-    mem=12
-  input:
-    beds = expand(join(outdir, "sample_level_data/{{sample}}/{{sample}}.tissue_{{tissue}}.METAFORA.outlier_regions.chrom_{chr}.bed"), chr=autosomes) +
-           expand(join(outdir, "sample_level_data/{{sample}}/{{sample}}.tissue_{{tissue}}.METAFORA.outlier_regions.sex_chroms.chrom_{chr}.bed"), chr=sex_chroms),
-    mats = expand(join(outdir, "sample_level_data/{{sample}}/{{sample}}.tissue_{{tissue}}.METAFORA.outlier_regions.zscore.chrom_{chr}.mat"), chr=autosomes) +
-           expand(join(outdir, "sample_level_data/{{sample}}/{{sample}}.tissue_{{tissue}}.METAFORA.outlier_regions.sex_chroms.zscore.chrom_{chr}.mat"), chr=sex_chroms)
-  output:
-    outlier_bed = join(outdir,"sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.bed"),
-    outlier_z_mat = join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.zscore.mat")
-  shell: """ 
-    header=$(for i in $(ls {input.beds}); do head -1 $i; done | sort | tail -1)
-    echo -e "$header" > {output.outlier_bed}
-    cat {input.beds} | grep -v "$header" | grep -v "^$" >> {output.outlier_bed} || true
-
-    header=$(for i in $(ls {input.mats}); do head -1 $i; done | sort | tail -1) 
-    echo -e "$header" > {output.outlier_z_mat}
-    cat {input.mats} | grep -v "$header" | grep -v "^$" >> {output.outlier_z_mat} || true
-  """
-
-
-rule combine_outliers:
-  threads: 1 
-  resources:
-    time=1,
-     mem=25
-  input:
-    lambda w: expand(join(outdir,"sample_level_data/{sample}/{sample}.tissue_{{tissue}}.METAFORA.outlier_regions.bed"),
-                     sample=tissue_dict[w.tissue]),
-  output:
-    join(outdir, "METAFORA.tissue_{tissue}.methylation_outliers.combined.tsv")
-  shell: """ 
-      header=$(for i in $(ls {input}); do head -1 $i; done | sort | tail -1)
-      echo "$header" > {output}
-      cat {input} | grep -v "$header" | grep -v "^$" >> {output} || true
   """
 
 rule summary_plots:
@@ -576,7 +435,6 @@ rule summary_plots:
     covariates_files = ','.join(expand(join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt"),tissue=unique_tissues)),
     MIN_ABS_ZSCORE = MIN_ABS_ZSCORE, 
     MIN_ABS_DELTA = MIN_ABS_DELTA 
-
   output:
     join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
   conda: "envs/metafora.yaml"

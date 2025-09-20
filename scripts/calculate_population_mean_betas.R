@@ -19,7 +19,6 @@ parser <- add_argument(parser, "--cpgs", help="bed file of all reference genome 
 parser <- add_argument(parser, "--min_segment_cpgs", help="minimum number of cpgs in segment for segmentation", type="integer", default=10)
 parser <- add_argument(parser, "--beta_mat", help="where to write beta matrix output")
 parser <- add_argument(parser, "--depth_mat", help="where to write depth matrix output")
-parser <- add_argument(parser, "--pop_mean", help="where to write population mean beta")
 parser <- add_argument(parser, "--segment_beta", help="where to write mean porfile segments")
 parser <- add_argument(parser, "--segment_depth", help="where to write average depth over segments")
 parser <- add_argument(parser, "--threads", help="number of parallel threads to reads meth data")
@@ -158,7 +157,6 @@ segments.df <- data.frame(chrom=seqnames(meth_segs), start=start(meth_segs), end
 cat("Saving files...\n\n") 
 fwrite(depth, file=argv$depth_mat, sep="\t", quote=F, scipen=999)
 fwrite(beta, file=argv$beta_mat, sep="\t", quote=F, scipen=999)
-fwrite(pop_mean, file=argv$pop_mean, sep="\t", quote=F, scipen=999)
 fwrite(segments.df, file=argv$segment_beta, sep="\t", quote=F, scipen=999)
 fwrite(as.data.frame(seg_depth), file=argv$segment_depth, sep="\t", quote=F, scipen=999)
 
