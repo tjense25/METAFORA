@@ -273,7 +273,7 @@ main <- function(argv) {
         combined_zscores <- rbind(combined_zscores, zscores_original_dim)
     }
     cat("Merging sample-level outliers and computing joint cohort z-scores . . . \n")
-    if(nrow(combined_outleirs)==0||is.null(nrow(combined_outliers))) { 
+    if(nrow(combined_outliers)==0||is.null(nrow(combined_outliers))) { 
         write.table(NULL, file=argv$outlier_bed, row.names=F, col.names=T, quote=F)
         write.table(NULL, file=argv$outlier_z_mat,row.names=F,col.names=T, quote=F)
         write.table(NULL, file=argv$joint_called_z_mat,row.names=F,col.names=T, quote=F)

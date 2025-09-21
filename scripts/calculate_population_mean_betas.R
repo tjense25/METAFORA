@@ -29,12 +29,13 @@ this_block <- argv$chrom
 blocks <- fread(argv$block_bed)
 blocks %<>% mutate(coord=paste0(seqnames,":",start,"-",end))
 this_region <- blocks$coord[blocks$block==this_block]
-cat("Reading cpg reference bed  . . . \n")
+print(this_region)
+cat(paste0("Reading cpg reference bed for chrom block ", this_block, " . . . \n"))
 methylation.dat <- data.table(tabix(this_region, argv$cpgs,verbose=F))
 colnames(methylation.dat) <- c("chromosome", "start","end")
 min_cpg_number <- argv$min_segment_cpgs
 
-read_meth_sample <- function(methylation.dat, fname) {
+read_meth_sample <- function(methylation.dat, fname, this_region) {
     sample_id <- str_split(basename(fname), pattern='\\.',simplify =T)[1]
     sample_id <- gsub("-", "_", sample_id)
     tmp.cpg <- tabix(region=this_region, fname, verbose=F)
@@ -51,7 +52,7 @@ read_meth_sample <- function(methylation.dat, fname) {
 #read in files and merge depth and betas to cpg data.table 
 cat("\nReading sample bed files and aggregating into single matrix . . . \n")
 file_list=read.table(argv$filelist,col.names="file")$file
-formatted_dat <- pbmclapply(file_list, function(f) read_meth_sample(methylation.dat, f), mc.cores=ncores, mc.preschedule=T) %>% bind_cols
+formatted_dat <- pbmclapply(file_list, function(f) read_meth_sample(methylation.dat, f, this_region), mc.cores=ncores, mc.preschedule=T) %>% bind_cols
 
 methylation.dat <- data.table(cbind(methylation.dat, formatted_dat))
 cat("\nCalculating mean beta and total depth across all samples\n\n")

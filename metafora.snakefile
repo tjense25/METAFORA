@@ -361,7 +361,7 @@ rule compute_hidden_factors:
 rule call_outliers_combined:
   threads:16
   resources:
-    time=48,
+    time=24,
     mem=128
   input:
     beta_mat = join(outdir, "Population_methylation.tissue_{tissue}/Population_methylation.tissue_{tissue}.chrom_{chr}.betas.mat.gz"),

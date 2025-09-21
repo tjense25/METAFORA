@@ -34,6 +34,8 @@ seg_betas <- unlist(strsplit(args$seg_beta,","))
 seg_depths <- unlist(strsplit(args$seg_depth,","))
 segment_betas_c <- do.call(rbind, lapply(seg_betas, fread))
 segment_depths_c <- do.call(rbind, lapply(seg_depths, fread))
+segment_betas <- segment_betas_c
+segment_depths <- segment_betas_c
 
 fwrite(segment_betas, args$combined_segment_beta, row.names=F, col.names=T, sep="\t")
 fwrite(segment_depths, args$combined_segment_depth, row.names=F, col.names=T, sep="\t")
@@ -133,8 +135,8 @@ if (!args$covariates=="SKIP") {
 #sex  chromosome estimation analysis
 sex_chrom_copynumber <- data.frame()
 if(args$chrX_seqname!="SKIP"&&args$chrY_seqname!="SKIP") {
-  sex_segment_depths <- segment_depths_c[segment_betas$chrom %in% sex_chroms,]
-  sex_segment_betas <- segment_betas_c[segment_betas$chrom %in% sex_chroms,]
+  sex_segment_depths <- segment_depths_c[segment_betas_c$chrom %in% sex_chroms,]
+  sex_segment_betas <- segment_betas_c[segment_betas_c$chrom %in% sex_chroms,]
   sex_beta.mat <- as.matrix(sex_segment_betas[,8:ncol(sex_segment_betas)]) 
   sex_segment_depths <- as.matrix(sex_segment_depths)
 
