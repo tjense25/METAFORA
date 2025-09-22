@@ -35,7 +35,7 @@ seg_depths <- unlist(strsplit(args$seg_depth,","))
 segment_betas_c <- do.call(rbind, lapply(seg_betas, fread))
 segment_depths_c <- do.call(rbind, lapply(seg_depths, fread))
 segment_betas <- segment_betas_c
-segment_depths <- segment_betas_c
+segment_depths <- segment_depths_c
 
 fwrite(segment_betas, args$combined_segment_beta, row.names=F, col.names=T, sep="\t")
 fwrite(segment_depths, args$combined_segment_depth, row.names=F, col.names=T, sep="\t")
@@ -59,7 +59,7 @@ tukey_outlier_limit <- min(0.95, quantile(mean_cors,.25) - 3*IQR(mean_cors) )
 
 correlation_outliers <- names(which(mean_cors < tukey_outlier_limit))
 
-cor_data <- reshape2::melt(cor.mat) %>% mutate(outlier=(Var1%in%correlation_outliers)|(Var2%in%correlation_outliers))
+cor_data <- reshape2::melt(cor.mat) %>% mutate(outlier=(Var1%in%correlation_outliers)|(Var2%in%correlation_outliers)) %>% filter(Var1!=Var2)
 custom_colors <- c("darkred", "red", "yellow", "white", "cyan", "blue", "darkblue")
 cor_plot <- ggplot(cor_data, aes(Var1, Var2,  fill=value,color=outlier)) + geom_tile() + 
   scale_fill_gradientn(colors=custom_colors, limits = c(0, 1), name = "Correlation") +
@@ -71,7 +71,6 @@ mean_cor_hist <- data.frame(sample=names(mean_cors), mean_cor=mean_cors, outlier
   theme(legend.position="none") + ylab("Count") + xlab("mean pairwise correlation")
 plot_grid(mean_cor_hist, cor_plot, ncol=1, rel_heights=c(2,8))
 ggsave(paste0(plot_out,"/Correlation_matrix.mean_cor_distribution.correlation_outliers.pdf"), width=10, height=13)
-
 
 mean_correlation_df <- data.frame(Sample_name=colnames(segment_depths), mean_pairwise_correlation=mean_cors, median_depth)
 if (!args$covariates=="SKIP") {

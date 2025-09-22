@@ -115,7 +115,6 @@ segment_blocks <- function(pop_mean, chrom_block, alpha = 0.01, minSeg = 10) {
   block_start <- c(block_start, last_start)
   block_end <- c(block_end, last_end)
   blocks = data.frame(start=block_start, end=block_end)
-  blocks <- blocks[(blocks$end - blocks$start) > minSeg,]
   
   segments <- Reduce(rbind,lapply(1:nrow(blocks), function(i) { 
     block_beta <- pop_mean[blocks$start[i]:blocks$end[i],]
