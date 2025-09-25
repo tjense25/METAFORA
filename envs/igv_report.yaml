@@ -5,7 +5,12 @@ channels:
   - r 
 dependencies:
   - r-base
+  - r-r.utils
+  - r-tidyverse
   - r-argparser
   - r-data.table
   - r-jsonlite
+  - bioconductor-rtracklayer
+  - bioconductor-plyranges
+  - bioconductor-genomicranges
   - igv-reports

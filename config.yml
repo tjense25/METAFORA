@@ -1,7 +1,7 @@
 output_dir: "METAFORA_output"
 scratch_dir: "./tmp"
 sample_table: "example_input.sample_table.txt"
-covariates: "example_input.covaraites.txt"
+covariates: "example_input.covaraites.txt" 
 
 params:
   MAX_DEPTH: 30
@@ -10,8 +10,9 @@ params:
   MIN_ABS_DELTA: 0.25
   SKIP_SEX_CHROMOSOME_ESTIMATION: FALSE
   
-reference_fasta: /references/GRCH38/GRCh38_no_alt_analysis_set_GCA_000001405.15.fasta
-reference_seqnames_table: ./GRCh38_ref_seqnames_table.txt
+reference_fasta: "/references/GRCH38/GRCh38_no_alt_analysis_set_GCA_000001405.15.fasta"
+reference_seqnames_table: "./GRCh38_ref_seqnames_table.txt"
+gene_model: "/references/GRCH38/GRCh38.gencode_v47.gff3" 
 
-annotation_track_tsv: "metafora_grch38_report_annotations.tsv"
+annotation_track_tsv: "metafora_grch38_report_annotations.tsv" 
 chrX_inactivation_regions: "references/X_inactivation_regions.GRCh38.bed"

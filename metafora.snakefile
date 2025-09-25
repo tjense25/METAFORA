@@ -82,6 +82,7 @@ rule all:
       #expand(join(outdir, "sample_level_data/{sample}/{sample}.chrX_inactivation_skew.summary_dat.txt"), sample=samples),
       #expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues),
       #expand(join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt"), tissue="Blood"),
+      expand(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.gene_track_annotated.bed"), tissue=sample_tissues),
       join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
 
 def get_block_betas(wildcards):
@@ -492,6 +493,27 @@ rule calculate_X_skew:
         --hap1 {input.hap1_bed} \
         --hap2 {input.hap2_bed} \
         --out_tsv {output}
+  """
+
+rule annotate_gene_tracks:
+  threads: 1
+  resources:
+    time=24,
+    mem=128
+  input:
+    outlier_bed = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.bed")
+  params:
+    gene_model = config['gene_model'] if 'gene_model' in config else "SKIP",
+    anno_tsv = config["annotation_track_tsv"] if "annotation_track_tsv" in config else "SKIP"
+  output:
+    anno_out = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.gene_track_annotated.bed")
+  conda: 'envs/igv_report.yaml'
+  shell: """
+    Rscript scripts/annotate_gene_tracks.R \
+        --outlier_bed {input.outlier_bed} \
+        --gene_model {params.gene_model} \
+        --annotation_tsv {params.anno_tsv} \
+        --annotated_out {output.anno_out}
   """
 
 rule make_outlier_report:
