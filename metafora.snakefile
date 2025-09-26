@@ -17,7 +17,7 @@ technology_map = { row.Sample_name : row.Technology for i,row in sample_table.it
 input_map = { row.Sample_name : row.Methylation_input for i,row in sample_table.iterrows()}
 if "Phased" in sample_table.columns:
   for i,row in sample_table.iterrows():
-    phased_bam[row.Sample_name] = (str(row.Phased).upper() in ["TRUE", "T"])
+    phased_bam[row.Sample_name] = (str(row.Phased).upper() in ["TRUE","T","TR","TRU"])
 
 for sample,tissue in sample_tissue_map.items():
   tissue_dict[tissue].append(sample)
@@ -82,7 +82,7 @@ rule all:
       #expand(join(outdir, "sample_level_data/{sample}/{sample}.chrX_inactivation_skew.summary_dat.txt"), sample=samples),
       #expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues),
       #expand(join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt"), tissue="Blood"),
-      expand(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.gene_track_annotated.bed"), tissue=sample_tissues),
+      expand(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.gene_track_annotated.haplotype_annotated.bed"), tissue=unique_tissues),
       join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
 
 def get_block_betas(wildcards):
@@ -101,14 +101,20 @@ def get_block_outlier_beds(wildcards):
   return expand(join(outdir, "METAFORA_methylation_outlier_regions.tissue_{{tissue}}.chrom_{chr}.bed"), chr=blocks)
 
 def get_block_zscore_mats(wildcards):
+    block_out = pd.read_table(checkpoints.create_cpg_reference.get(**wildcards).output[2])
+    blocks = [ row.block for i,row in block_out.iterrows() if row.seqnames in autosomes+sex_chroms]
+    return expand(join(outdir, "METAFORA_methylation_outlier_regions.tissue_{{tissue}}.sample_level_zscore.chrom_{chr}.mat"),chr=blocks)
+
+def get_block_joint_zscore_mats(wildcards):
   block_out = pd.read_table(checkpoints.create_cpg_reference.get(**wildcards).output[2])
   blocks = [ row.block for i,row in block_out.iterrows() if row.seqnames in autosomes+sex_chroms]
   return expand(join(outdir, "METAFORA_methylation_outlier_regions.tissue_{{tissue}}.merged_joint_called_zscore.chrom_{chr}.mat"), chr=blocks) 
 
+
 checkpoint create_cpg_reference:
     threads: 16
     resources: 
-      mem=24,
+      mem=48,
       time=12
     input:
       ref = config["reference_fasta"]
@@ -128,7 +134,7 @@ checkpoint create_cpg_reference:
           --valid_chroms {params.valid_chroms} \
           --block_size {params.block_size} \
           --cpg_bed_out {params.tmp_bed} \
-          --block_bed_out {output.block_bed}
+          --block_bed_out {output.block_bed} || true #catch random segfault??
 
       bgzip {params.tmp_bed}
       tabix -p bed {output.cpg_bed}
@@ -311,7 +317,7 @@ rule create_tissue_sample_reference:
         --depth_mat {params.tmp_depth} \
         --segment_beta {output.seg_beta} \
         --segment_depth {output.seg_depth} \
-        --threads {threads}
+        --threads {threads} || true
     rm -f {params.filelist}
 
     bgzip {params.tmp_beta}
@@ -407,18 +413,29 @@ rule combine_all_sample_outliers:
     mem=12
   input:
     beds = get_block_outlier_beds, 
-    mats = get_block_zscore_mats
+    mats = get_block_zscore_mats,
+    joint_mats = get_block_joint_zscore_mats
+  params:
+    tmp_z_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{{tissue}}.ALL_CHROM_COMBINED.sample_level_zscore.mat"),
+    tmp_joint_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.merged_joint_called_zscore.mat")
   output:
-    outlier_bed = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.bed"),
-    outlier_z_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.merged_joint_called_zscore.mat")
+    outlier_bed = temp(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.bed")),
+    outlier_z_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.sample_level_zscore.mat.gz"),
+    outlier_joint_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.merged_joint_called_zscore.mat.gz")
   shell: """ 
     header=$(for i in $(ls {input.beds}); do head -1 $i; done | sort | tail -1)
     echo -e "$header" > {output.outlier_bed}
     cat {input.beds} | grep -v "$header" | grep -v "^$" >> {output.outlier_bed} || true
 
     header=$(for i in $(ls {input.mats}); do head -1 $i; done | sort | tail -1) 
-    echo -e "$header" > {output.outlier_z_mat}
-    cat {input.mats} | grep -v "$header" | grep -v "^$" >> {output.outlier_z_mat} || true
+    echo -e "$header" > {params.tmp_z_mat}
+    cat {input.mats} | grep -v "$header" | grep -v "^$" >> {params.tmp_z_mat} || true
+    gzip {params.tmp_z_mat}
+
+    header=$(for i in $(ls {input.joint_mats}); do head -1 $i; done | sort | tail -1) 
+    echo -e "$header" > {params.tmp_joint_mat}
+    cat {input.joint_mats} | grep -v "$header" | grep -v "^$" >> {params.tmp_joint_mat} || true
+    gzip {params.tmp_joint_mat}
   """
 
 rule summary_plots:
@@ -455,16 +472,17 @@ rule annotate_haplotype_delta:
     time=4,
     mem=48
   input:
-    outlier_bed = join(outdir,"sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.bed"),
+    outlier_bed = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.gene_track_annotated.bed"),
     combined_bed = lambda w: join(outdir, "sample_level_data/{sample}/{sample}.tech_" + technology_map[w.sample] + ".METAFORA_formatted.cpg_methylation.bed.gz"),
     hap1_bed = lambda w: join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_1.tech_" + technology_map[w.sample] + ".METAFORA_formatted.cpg_methylation.bed.gz"),
     hap2_bed = lambda w: join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_2.tech_" + technology_map[w.sample] + ".METAFORA_formatted.cpg_methylation.bed.gz")
   output:
-    annotated_bed = join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.haplotype_annotated.bed")
+    annotated_bed = join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.gene_track_annotated.haplotype_annotated.bed")
   conda: 'envs/metafora.yaml'
   shell: """
     Rscript scripts/annotate_haplotype_methylation.R \
         --outlier_bed {input.outlier_bed} \
+        --sample {wildcards.sample} \
         --combined {input.combined_bed} \
         --hap1 {input.hap1_bed} \
         --hap2 {input.hap2_bed} \
@@ -514,6 +532,29 @@ rule annotate_gene_tracks:
         --gene_model {params.gene_model} \
         --annotation_tsv {params.anno_tsv} \
         --annotated_out {output.anno_out}
+  """
+
+rule combine_haplotype_annos:
+  threads: 1 
+  resources:
+    time=24,
+    mem=64
+  input:
+    gene_anno_out = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.gene_track_annotated.bed"),
+    haplo_annos = lambda w: expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{{tissue}}.METAFORA.outlier_regions.gene_track_annotated.haplotype_annotated.bed"), 
+                                   sample=[ samp for samp in tissue_dict[w.tissue] if phased_bam[samp]]), #get tissue-matched samples that are phased=T in sample table
+  params:
+    haplo_anno_list = join(outdir,"tmp.haplo_anno_list.txt")
+  output:
+    haplo_anno_out = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.gene_track_annotated.haplotype_annotated.bed"),
+  conda: 'envs/metafora.yaml'
+  shell: """ 
+    ls {input.haplo_annos} > {params.haplo_anno_list}
+    Rscript scripts/combine_haplo_annos.R \
+        --gene_anno_out {input.gene_anno_out} \
+        --haplo_anno_list {params.haplo_anno_list} \
+        --haplo_anno_out {output.haplo_anno_out}
+    rm -f {params.haplo_anno_list}
   """
 
 rule make_outlier_report:

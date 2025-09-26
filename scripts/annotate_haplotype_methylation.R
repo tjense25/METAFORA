@@ -10,6 +10,7 @@ library(bedr)
 
 parser <- arg_parser("Annotate outlier regions with haplotype methylation deltas")
 parser <- add_argument(parser, "--outlier_bed", help="outlier bed output from combine outlier rule")
+parser <- add_argument(parser, "--sample", help="sample whose outliers you wish to annotate with phasing info, should match ID key in outlier table")
 parser <- add_argument(parser, "--combined", help="Metafora formatted combined methylation bed")
 parser <- add_argument(parser, "--hap1", help="Metafora formatted Haplotype 1 bed")
 parser <- add_argument(parser, "--hap2", help="Metafora formatted Haplotype 2 bed")
@@ -17,11 +18,18 @@ parser <- add_argument(parser, "--annotated_out", help="where to write the haplo
 argv <- parse_args(parser)
 
 if(file.info(argv$outlier_bed)$size <= 1) {
-    fwrite(NULL, argv$annotated_out)
+    write.table(NULL, argv$annotated_out,quote=F)
     quit(save = "no")
 }
 
-outliers <- fread(argv$outlier_bed)
+this_sample <- argv$sample
+outliers.all <- fread(argv$outlier_bed)
+outliers <- outliers.all %>% filter(ID==this_sample)
+if(is.null(nrow(outliers)) || nrow(outliers) == 0) {
+    write.table(NULL, argv$annotated_out,quote=F)
+    quit(save = "no")
+}
+
 combined <- fread(argv$combined)
 hap1 <- fread(argv$hap1)
 hap2 <- fread(argv$hap2)
@@ -60,8 +68,5 @@ outliers$phasing_percent <- pmin(outliers$combined_depth / (outliers$hap1_depth 
 outliers$haplotype_coverage_bias <- log(outliers$hap1_depth/outliers$hap2_depth)
 outliers$hap_delta <- outliers$hap1_beta - outliers$hap2_beta
 
-#outliers
-#outliers %<>% mutate(hap1_deviance_score = qnorm(pbeta(q=hap1_beta, 0.5*hap1_depth, .5*hap1_depth)),
-#                     hap2_deviance_score = qnorm(pbeta(q=hap2_beta, 0.5*hap2_depth, .5*hap2_depth)))
-
+outliers
 fwrite(outliers, argv$annotated_out, sep="\t")

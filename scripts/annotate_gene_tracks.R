@@ -25,7 +25,7 @@ if (argv$annotation_tsv != "SKIP") {
         if (ncol(tmp.anno)==4) colnames(tmp.anno)[4] <- "Names"
         anno.gr <- makeGRangesFromDataFrame(tmp.anno,keep.extra.columns =T)
         tmp.outliers[[annos$name[anno_idx]]] <- overlapsAny(outliers.gr,anno.gr)
-        tmp.overlap <- join_overlap_left(outliers.gr, anno.gr) %>% as.data.frame %>% group_by(seqnames,start,end,seg_id) %>% summarize(Names=paste(Names,collapse=",")) %>% as.data.frame
+        tmp.overlap <- join_overlap_left(outliers.gr, anno.gr) %>% as.data.frame %>% group_by(seqnames,start,end,seg_id) %>% summarize(Names=paste(unique(Names),collapse=",")) %>% as.data.frame
         rownames(tmp.overlap) <- tmp.overlap$seg_id
         tmp.outliers[[paste0(annos$name[anno_idx],"_names")]] <- tmp.overlap[tmp.outliers$seg_id,]$Names
         makeGRangesFromDataFrame(tmp.outliers, keep.extra.columns=T)
