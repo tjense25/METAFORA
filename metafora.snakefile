@@ -11,13 +11,17 @@ samples = sample_table['Sample_name'].to_list()
 sample_tissues = sample_table['Tissue'].to_list()
 tissue_dict=defaultdict(list)
 
-phased_bam = defaultdict(lambda: False)
 sample_tissue_map = { row.Sample_name : row.Tissue for i,row in sample_table.iterrows() }
 technology_map = { row.Sample_name : row.Technology for i,row in sample_table.iterrows() }
 input_map = { row.Sample_name : row.Methylation_input for i,row in sample_table.iterrows()}
+
+phased_bam = defaultdict(lambda: False)
+any_phased=defaultdict(lambda: False)
 if "Phased" in sample_table.columns:
   for i,row in sample_table.iterrows():
     phased_bam[row.Sample_name] = (str(row.Phased).upper() in ["TRUE","T","TR","TRU"])
+    if not any_phased[row.Tissue] and phased_bam[row.Sample_name]:
+      any_phased[row.Tissue] = True
 
 for sample,tissue in sample_tissue_map.items():
   tissue_dict[tissue].append(sample)
@@ -82,7 +86,7 @@ rule all:
       #expand(join(outdir, "sample_level_data/{sample}/{sample}.chrX_inactivation_skew.summary_dat.txt"), sample=samples),
       #expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues),
       #expand(join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt"), tissue="Blood"),
-      expand(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.gene_track_annotated.haplotype_annotated.bed"), tissue=unique_tissues),
+      expand(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.haplotype_annotated.gene_track_annotated.bed"), tissue=unique_tissues),
       join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
 
 def get_block_betas(wildcards):
@@ -134,7 +138,7 @@ checkpoint create_cpg_reference:
           --valid_chroms {params.valid_chroms} \
           --block_size {params.block_size} \
           --cpg_bed_out {params.tmp_bed} \
-          --block_bed_out {output.block_bed} || true #catch random segfault??
+          --block_bed_out {output.block_bed} 
 
       bgzip {params.tmp_bed}
       tabix -p bed {output.cpg_bed}
@@ -282,7 +286,7 @@ rule format_pacbio_hap:
     tabix -p bed -S 1 {output.meth_bed}
   """
   
-rule create_tissue_sample_reference:
+rule create_tissue_population_reference:
   threads: 8
   resources:
     time=24,
@@ -317,7 +321,7 @@ rule create_tissue_sample_reference:
         --depth_mat {params.tmp_depth} \
         --segment_beta {output.seg_beta} \
         --segment_depth {output.seg_depth} \
-        --threads {threads} || true
+        --threads {threads}
     rm -f {params.filelist}
 
     bgzip {params.tmp_beta}
@@ -384,7 +388,7 @@ rule call_outliers_combined:
     MIN_ABS_DELTA = MIN_ABS_DELTA 
   output:
     outlier_bed = temp(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.chrom_{chr}.bed")),
-    outlier_z_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.sample_level_zscore.chrom_{chr}.mat"),
+    outlier_z_mat = temp(join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.sample_level_zscore.chrom_{chr}.mat")),
     joint_called_z_mat = temp(join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.merged_joint_called_zscore.chrom_{chr}.mat"))
   conda: 'envs/metafora.yaml'
   shell: """ 
@@ -416,7 +420,7 @@ rule combine_all_sample_outliers:
     mats = get_block_zscore_mats,
     joint_mats = get_block_joint_zscore_mats
   params:
-    tmp_z_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{{tissue}}.ALL_CHROM_COMBINED.sample_level_zscore.mat"),
+    tmp_z_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.sample_level_zscore.mat"),
     tmp_joint_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.merged_joint_called_zscore.mat")
   output:
     outlier_bed = temp(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.bed")),
@@ -472,12 +476,12 @@ rule annotate_haplotype_delta:
     time=4,
     mem=48
   input:
-    outlier_bed = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.gene_track_annotated.bed"),
+    outlier_bed = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.bed"),
     combined_bed = lambda w: join(outdir, "sample_level_data/{sample}/{sample}.tech_" + technology_map[w.sample] + ".METAFORA_formatted.cpg_methylation.bed.gz"),
     hap1_bed = lambda w: join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_1.tech_" + technology_map[w.sample] + ".METAFORA_formatted.cpg_methylation.bed.gz"),
     hap2_bed = lambda w: join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_2.tech_" + technology_map[w.sample] + ".METAFORA_formatted.cpg_methylation.bed.gz")
   output:
-    annotated_bed = join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.gene_track_annotated.haplotype_annotated.bed")
+    annotated_bed = temp(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.haplotype_annotated.bed"))
   conda: 'envs/metafora.yaml'
   shell: """
     Rscript scripts/annotate_haplotype_methylation.R \
@@ -519,12 +523,12 @@ rule annotate_gene_tracks:
     time=24,
     mem=128
   input:
-    outlier_bed = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.bed")
+    outlier_bed = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.haplotype_annotated.bed")
   params:
     gene_model = config['gene_model'] if 'gene_model' in config else "SKIP",
     anno_tsv = config["annotation_track_tsv"] if "annotation_track_tsv" in config else "SKIP"
   output:
-    anno_out = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.gene_track_annotated.bed")
+    anno_out = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.haplotype_annotated.gene_track_annotated.bed")
   conda: 'envs/igv_report.yaml'
   shell: """
     Rscript scripts/annotate_gene_tracks.R \
@@ -540,19 +544,20 @@ rule combine_haplotype_annos:
     time=24,
     mem=64
   input:
-    gene_anno_out = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.gene_track_annotated.bed"),
-    haplo_annos = lambda w: expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{{tissue}}.METAFORA.outlier_regions.gene_track_annotated.haplotype_annotated.bed"), 
+    combined_out = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.bed"),
+    haplo_annos = lambda w: expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{{tissue}}.METAFORA.outlier_regions.haplotype_annotated.bed"), 
                                    sample=[ samp for samp in tissue_dict[w.tissue] if phased_bam[samp]]), #get tissue-matched samples that are phased=T in sample table
   params:
+    haplo_input = lambda w: join(outdir,"tmp.haplo_anno_list.txt") if any_phased[w.tissue] else "SKIP",
     haplo_anno_list = join(outdir,"tmp.haplo_anno_list.txt")
   output:
-    haplo_anno_out = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.gene_track_annotated.haplotype_annotated.bed"),
+    haplo_anno_out = temp(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.haplotype_annotated.bed"))
   conda: 'envs/metafora.yaml'
   shell: """ 
     ls {input.haplo_annos} > {params.haplo_anno_list}
     Rscript scripts/combine_haplo_annos.R \
-        --gene_anno_out {input.gene_anno_out} \
-        --haplo_anno_list {params.haplo_anno_list} \
+        --outlier_bed {input.combined_out} \
+        --haplo_anno_list {params.haplo_input} \
         --haplo_anno_out {output.haplo_anno_out}
     rm -f {params.haplo_anno_list}
   """
