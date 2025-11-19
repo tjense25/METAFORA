@@ -4,6 +4,8 @@ channels:
     - conda-forge
     - epi2melabs
 dependencies:
+    - openssl=1.1
+    - htslib=1.16
     - tabix
     - bedtools
     - modbam2bed
