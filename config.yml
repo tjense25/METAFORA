@@ -9,6 +9,7 @@ params:
   MIN_ABS_ZSCORE: 3
   MIN_ABS_DELTA: 0.25
   SKIP_SEX_CHROMOSOME_ESTIMATION: FALSE
+  PLOT_OUTLIERS: TRUE
   
 reference_fasta: "/references/GRCH38/GRCh38_no_alt_analysis_set_GCA_000001405.15.fasta"
 reference_seqnames_table: "./GRCh38_ref_seqnames_table.txt"

@@ -28,6 +28,7 @@ parser <- add_argument(parser, "--min_abs_delta", help="minimum effect size delt
 parser <- add_argument(parser, "--max_depth", help="maxmimum depth of read coverage to consider. (regions higher than this depth will be effectively downsampled)", type="integer", default=30)
 parser <- add_argument(parser, "--chrX_seqname", help="chrX seqname in supplied reference genome")
 parser <- add_argument(parser, "--chrY_seqname", help="chrY seqname in supplied reference genome")
+parser <- add_argument(parser, "--plot_dir", help="sample level data directory where outlier plots will be written. default: if not specified no outliers will be plotted",default=NULL)
 parser <- add_argument(parser, "--threads", help="number of threads to use for paralellized chrom block segmentation", default=1)
  
 argv <- parse_args(parser)
@@ -161,7 +162,65 @@ call_outliers <-function(cand.segs, cpgs.gr, beta.mat, depth.mat, sample_id, MIN
   return(list("outlier.segs"=cand.segs,"z.mat"=zscores))
 }
 
-outlier_pipeline <- function(pop_mean, betas, depths, cpgs.gr, beta.mat, depth.mat, covariates, this_sample,this_chrom, this_block, chrom_type, min_seg_size, sample_id, MAX_DEPTH=100, MIN_ABS_ZSCORE=3, MIN_ABS_DELTA=0.25) {
+plot_outliers <- function(samp, cand.segs, meth.sample, z.mat, plot_dir) {
+  expanded.segs <- cand.segs
+  size=pmax(1000,(cand.segs$end - cand.segs$start))
+  expanded.segs$start=pmax(1,expanded.segs$start - size)
+  expanded.segs$end = expanded.segs$end + size
+
+  betas.gr <- makeGRangesFromDataFrame(meth.sample)
+  segs.gr <- makeGRangesFromDataFrame(expanded.segs, keep.extra.columns = T)
+
+  ol <- findOverlaps(betas.gr,segs.gr)
+  meth.sample <- meth.sample[queryHits(ol)]
+  meth.sample$seg_id <- segs.gr$seg_id[subjectHits(ol)]
+
+  i=1
+  for (i in 1:nrow(cand.segs)) {
+     seg = cand.segs[i,] 
+     seg_id = paste0(seg$seqnames,"_",seg$start,"_",seg$end)
+     this_seg = seg$seg_id
+
+     #subset to current segement
+     tmp.meth.sample <- meth.sample %>% filter(seg_id == this_seg)
+     #smooth betas and zscore for plotting
+     tmp.meth.sample$sample_beta.smoothed <- sapply(1:nrow(tmp.meth.sample), function(x) mean(tmp.meth.sample$sample_beta[max(1,x-5):min(x+5,nrow(tmp.meth.sample))], na.rm=T))
+     tmp.meth.sample$mean_beta.smoothed <- sapply(1:nrow(tmp.meth.sample), function(x) mean(tmp.meth.sample$mean_beta[max(1,x-5):min(x+5,nrow(tmp.meth.sample))], na.rm=T))
+     tmp.meth.sample$zscore.smoothed <- sapply(1:nrow(tmp.meth.sample), function(x) mean(tmp.meth.sample$zscore[max(1,x-5):min(x+5,nrow(tmp.meth.sample))],na.rm=T))
+     tmp.meth.sample$sd.smoothed <- sapply(1:nrow(tmp.meth.sample), function(x) mean(tmp.meth.sample$sd_beta[max(1,x-5):min(x+5,nrow(tmp.meth.sample))], na.rm=T))
+
+     betas.plot <- tmp.meth.sample %>% 
+       pivot_longer(cols=c("mean_beta.smoothed", "sample_beta.smoothed"), names_to="source", values_to="beta") %>% 
+       mutate(beta_lower=beta-ifelse(source=="mean_beta.smoothed",yes=sd.smoothed, 0), 
+              beta_higher=beta+ifelse(source=="mean_beta.smoothed",yes=sd.smoothed,0))  %>% 
+       ggplot(aes(start, beta, ymin=beta_lower, ymax=beta_higher, color=source)) + geom_point() + geom_line(alpha=.8) + geom_ribbon(alpha=.1) + 
+           theme_classic() +
+           scale_color_manual(values=c("black","red"))  + 
+           ylab("Methylation beta") +
+           ggtitle(samp,subtitle=seg_id) +
+           theme(legend.position = "none")
+
+     zscore.plot <- tmp.meth.sample %>% filter(seg_id == this_seg) %>%
+       ggplot(aes(start, zscore.smoothed)) + geom_point() + geom_line() + theme_classic() +
+       geom_hline(yintercept=0, linetype="dashed", color="grey70") + 
+       geom_segment(data=as.data.frame(cand.segs[i,]),mapping=aes(x=start,xend=end,y=seg.mean,yend=seg.mean),color="red", linewidth=2) +
+       ylab("population mean difference zscore") 
+
+     z.df <- data.frame(zscore=as.numeric(z.mat[this_seg,]),
+                       sample_id=colnames(z.mat),
+                       outlier=(colnames(z.mat)==samp))
+     hist <- ggplot(z.df, aes(zscore, fill=outlier)) + geom_histogram(bins=50) +  theme_classic() +
+         geom_vline(xintercept=seg$zscore, color="red", linetype="dashed") +
+         scale_fill_manual(values=c("grey40", "firebrick")) +
+         theme(legend.position="none")
+
+     plot_grid(betas.plot,zscore.plot,hist,ncol=1)
+     ggsave(file=paste0(plot_dir, "/",seg_id,'.methylation_outlier_plots.pdf'), width = 4, height=8)
+    }
+}
+
+
+outlier_pipeline <- function(pop_mean, betas, depths, cpgs.gr, beta.mat, depth.mat, covariates, this_sample,this_chrom, this_block, chrom_type, min_seg_size, plotdir=NULL, MAX_DEPTH=100, MIN_ABS_ZSCORE=3, MIN_ABS_DELTA=0.25) {
         if(chrom_type=="SEX_CHROM") {
             covariates <- covariates[,!colnames(covariates) %in% c("sex")]
         }
@@ -180,6 +239,10 @@ outlier_pipeline <- function(pop_mean, betas, depths, cpgs.gr, beta.mat, depth.m
         outlier.segs <- outlier.segs[keep,]
         if(nrow(outlier.segs)==0||is.null(nrow(outlier.segs))) { return(list("segs"=NULL,"zscores"=NULL)) }
         outlier_z_matrix <- matrix(outlier_z_matrix,nrow=nrow(outlier.segs))
+
+        if(!is.null(plotdir)) {
+            plot_outliers(this_sample, outlier.segs, meth.sample, outlier_z_matrix, plot_dir=paste0(plotdir,"/",this_sample,"/outlier_plots"))
+        }
         return(list("segs"=outlier.segs,"zscores"=outlier_z_matrix))
 }
 
@@ -191,6 +254,7 @@ main <- function(argv) {
     chrX_seqname <- argv$chrX_seqname
     chrY_seqname <- argv$chrY_seqname
     chrom_type <- ifelse(this_chrom %in% c(chrX_seqname, chrY_seqname), yes="SEX_CHROM", no="AUTOSOME")
+    plot_dir <- argv$plot_dir
 
     betas <- fread(argv$beta_mat)
     depths <- fread(argv$depth_mat)
@@ -261,6 +325,7 @@ main <- function(argv) {
         outlier_results <- lapply(batch_samples, function(x) {
                    outlier_pipeline(pop_mean,betas,depths,cpgs.gr,tmp.bmat,tmp.dmat,tmp.covariates,
                                     this_sample=x,this_chrom=this_chrom,this_block=this_block,chrom_type=chrom_type,min_seg_size=MIN_SEG_SIZE,
+                                    plotdir=plot_dir,
                                     MAX_DEPTH=MAX_DEPTH,MIN_ABS_ZSCORE=MIN_ABS_ZSCORE,MIN_ABS_DELTA=MIN_ABS_DELTA) 
                 })
         outliers <- lapply(outlier_results, function(x) x$segs) %>% bind_rows

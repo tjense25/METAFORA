@@ -50,6 +50,10 @@ MIN_SEG_SIZE = config["params"]["MIN_SEG_SIZE"] if "MIN_SEG_SIZE" in config["par
 MIN_ABS_ZSCORE = config["params"]["MIN_ABS_ZSCORE"] if "MIN_ABS_ZSCORE" in config["params"] else 3
 MIN_ABS_DELTA = config["params"]["MIN_ABS_DELTA"] if "MIN_ABS_DELTA" in config["params"] else 0.25
 SKIP_SEX_CHROMOSOME_ESTIMATION = config["params"]["SKIP_SEX_CHROMOSOME_ESTIMATION"] if "SKIP_SEX_CHROMOSOME_ESTIMATION" in config["params"] else "FALSE"
+PLOT_OUTLIERS = config["params"]["PLOT_OUTLIERS"] if "PLOT_OUTLIERS" in config["params"] else "FALSE"
+if PLOT_OUTLIERS in ["TRUE","T","True","true",True]:
+  print("plotting outliers . .. .")
+  PLOT_OUTLIERS = "TRUE"
 
 reference_seqnames_table = config["reference_seqnames_table"] if "reference_seqnames_table" in config else "./GRCh38_ref_seqnames_table.txt"
 block_size = config["parallelization_block_size"] if "parallelization_block_size" in config else 750000
@@ -385,7 +389,8 @@ rule call_outliers_combined:
     MAX_DEPTH = MAX_DEPTH, 
     MIN_SEG_SIZE = MIN_SEG_SIZE, 
     MIN_ABS_ZSCORE = MIN_ABS_ZSCORE, 
-    MIN_ABS_DELTA = MIN_ABS_DELTA 
+    MIN_ABS_DELTA = MIN_ABS_DELTA ,
+    plotdir_param = "--plot_dir " + join(outdir,"sample_level_data") if PLOT_OUTLIERS=="TRUE" else ""
   output:
     outlier_bed = temp(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.chrom_{chr}.bed")),
     outlier_z_mat = temp(join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.sample_level_zscore.chrom_{chr}.mat")),
@@ -407,7 +412,8 @@ rule call_outliers_combined:
         --tissue {wildcards.tissue} \
         --chrX_seqname {params.chrX_seqname} \
         --chrY_seqname {params.chrY_seqname} \
-        --threads {threads}
+        --threads {threads} \
+        {params.plotdir_param}
   """
 
 rule combine_all_sample_outliers:
@@ -568,8 +574,8 @@ rule make_outlier_report:
     time=4,
     mem=12
   input:
-    outlier_bed = lambda w: join(outdir,"sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions" + (".haplotype_annotated.bed" if phased_bam[w.sample] else ".bed")),
-    outlier_z_mat = join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.zscore.mat"),
+    outlier_bed = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.haplotype_annotated.gene_track_annotated.bed"),
+    outlier_z_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.sample_level_zscore.mat.gz"),
     covariates = join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt")
   params:
     annos = config["annotation_track_tsv"],
