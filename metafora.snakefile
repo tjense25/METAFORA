@@ -89,7 +89,6 @@ rule all:
     input:
       #expand(join(outdir, "sample_level_data/{sample}/{sample}.chrX_inactivation_skew.summary_dat.txt"), sample=samples),
       #expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues),
-      #expand(join(outdir, "Global_Methylation_PCA_tissue_{tissue}/PCA_covariates.txt"), tissue="Blood"),
       expand(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.haplotype_annotated.gene_track_annotated.bed"), tissue=unique_tissues),
       join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
 

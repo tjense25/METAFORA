@@ -11,6 +11,7 @@ library(Matrix)
 library(magrittr)
 library(matrixStats)
 library(plyranges)
+library(cowplot)
 options(dplyr.summarise.inform = FALSE, dplyr.join.inform = FALSE)
 
 parser <- arg_parser("Calculate and segment per sample zscore")
@@ -33,6 +34,23 @@ parser <- add_argument(parser, "--threads", help="number of threads to use for p
  
 argv <- parse_args(parser)
 ncores=as.integer(argv$threads)
+#argv <- NULL
+#argv$chrom<-"chr22.1" 
+#argv$beta_mat<-"../METAFORA_output/Population_methylation.tissue_Blood/Population_methylation.tissue_Blood.chrom_chr22.1.betas.mat.gz"
+#argv$depth_mat<-"../METAFORA_output/Population_methylation.tissue_Blood/Population_methylation.tissue_Blood.chrom_chr22.1.coverage.mat.gz" 
+#argv$global_meth_pcs<-"../METAFORA_output/Global_Methylation_PCA_tissue_Blood/PCA_covariates.txt"
+#argv$outlier_bed<-"../METAFORA_output/METAFORA_methylation_outlier_regions.tissue_Blood.chrom_chr22.1.bed" 
+#argv$outlier_z_mat<-"../METAFORA_output/METAFORA_methylation_outlier_regions.tissue_Blood.sample_level_zscore.chrom_chr22.1.mat"
+#argv$joint_called_z_mat<-"../METAFORA_output/METAFORA_methylation_outlier_regions.tissue_Blood.merged_joint_called_zscore.chrom_chr22.1.mat"
+#argv$min_seg_size<-20
+#argv$min_abs_zscore<-3
+#argv$min_abs_delta<-0.3
+#argv$max_depth<-30 
+#argv$tissue<-"Blood" 
+#argv$chrX_seqname<-"chrX" 
+#argv$chrY_seqname<-"chrY" 
+#argv$threads<-8
+#argv$plot_dir<-"../METAFORA_output/sample_level_data"
 
 MIN_Z_THRESH <- function(D) {1.172304 + .0355*D} #optimized parameters accounting for depth from simulation experiment to acheive 90% power for absolute deltas of 0.25
 MAX_Z_THRESH <- function(D) {5.5 + 0.16654*D} #optimized  parameters accounting for depth for zscores observed for 0.9 deltas 
@@ -163,6 +181,7 @@ call_outliers <-function(cand.segs, cpgs.gr, beta.mat, depth.mat, sample_id, MIN
 }
 
 plot_outliers <- function(samp, cand.segs, meth.sample, z.mat, plot_dir) {
+  system(paste0("mkdir -p ", plot_dir))
   expanded.segs <- cand.segs
   size=pmax(1000,(cand.segs$end - cand.segs$start))
   expanded.segs$start=pmax(1,expanded.segs$start - size)
@@ -186,7 +205,7 @@ plot_outliers <- function(samp, cand.segs, meth.sample, z.mat, plot_dir) {
      #smooth betas and zscore for plotting
      tmp.meth.sample$sample_beta.smoothed <- sapply(1:nrow(tmp.meth.sample), function(x) mean(tmp.meth.sample$sample_beta[max(1,x-5):min(x+5,nrow(tmp.meth.sample))], na.rm=T))
      tmp.meth.sample$mean_beta.smoothed <- sapply(1:nrow(tmp.meth.sample), function(x) mean(tmp.meth.sample$mean_beta[max(1,x-5):min(x+5,nrow(tmp.meth.sample))], na.rm=T))
-     tmp.meth.sample$zscore.smoothed <- sapply(1:nrow(tmp.meth.sample), function(x) mean(tmp.meth.sample$zscore[max(1,x-5):min(x+5,nrow(tmp.meth.sample))],na.rm=T))
+     tmp.meth.sample$deviance_score.smoothed <- sapply(1:nrow(tmp.meth.sample), function(x) mean(tmp.meth.sample$deviance_score[max(1,x-5):min(x+5,nrow(tmp.meth.sample))],na.rm=T))
      tmp.meth.sample$sd.smoothed <- sapply(1:nrow(tmp.meth.sample), function(x) mean(tmp.meth.sample$sd_beta[max(1,x-5):min(x+5,nrow(tmp.meth.sample))], na.rm=T))
 
      betas.plot <- tmp.meth.sample %>% 
@@ -200,13 +219,13 @@ plot_outliers <- function(samp, cand.segs, meth.sample, z.mat, plot_dir) {
            ggtitle(samp,subtitle=seg_id) +
            theme(legend.position = "none")
 
-     zscore.plot <- tmp.meth.sample %>% filter(seg_id == this_seg) %>%
-       ggplot(aes(start, zscore.smoothed)) + geom_point() + geom_line() + theme_classic() +
+     deviance_score.plot <- tmp.meth.sample %>% filter(seg_id == this_seg) %>%
+       ggplot(aes(start, deviance_score.smoothed)) + geom_point() + geom_line() + theme_classic() +
        geom_hline(yintercept=0, linetype="dashed", color="grey70") + 
        geom_segment(data=as.data.frame(cand.segs[i,]),mapping=aes(x=start,xend=end,y=seg.mean,yend=seg.mean),color="red", linewidth=2) +
-       ylab("population mean difference zscore") 
+       ylab("deviance score") 
 
-     z.df <- data.frame(zscore=as.numeric(z.mat[this_seg,]),
+     z.df <- data.frame(zscore=as.numeric(z.mat[i,]),
                        sample_id=colnames(z.mat),
                        outlier=(colnames(z.mat)==samp))
      hist <- ggplot(z.df, aes(zscore, fill=outlier)) + geom_histogram(bins=50) +  theme_classic() +
@@ -214,8 +233,8 @@ plot_outliers <- function(samp, cand.segs, meth.sample, z.mat, plot_dir) {
          scale_fill_manual(values=c("grey40", "firebrick")) +
          theme(legend.position="none")
 
-     plot_grid(betas.plot,zscore.plot,hist,ncol=1)
-     ggsave(file=paste0(plot_dir, "/",seg_id,'.methylation_outlier_plots.pdf'), width = 4, height=8)
+     plot_grid(betas.plot,deviance_score.plot,hist,ncol=1)
+     ggsave(file=paste0(plot_dir, "/",seg_id,'.methylation_outlier_plots.pdf'), width = 3, height=7)
     }
 }
 
@@ -239,7 +258,8 @@ outlier_pipeline <- function(pop_mean, betas, depths, cpgs.gr, beta.mat, depth.m
         outlier.segs <- outlier.segs[keep,]
         if(nrow(outlier.segs)==0||is.null(nrow(outlier.segs))) { return(list("segs"=NULL,"zscores"=NULL)) }
         outlier_z_matrix <- matrix(outlier_z_matrix,nrow=nrow(outlier.segs))
-
+        colnames(outlier_z_matrix) <- colnames(beta.mat)
+        rownames(outlier_z_matrix) <- outlier.segs$seg_id
         if(!is.null(plotdir)) {
             plot_outliers(this_sample, outlier.segs, meth.sample, outlier_z_matrix, plot_dir=paste0(plotdir,"/",this_sample,"/outlier_plots"))
         }
@@ -310,8 +330,10 @@ main <- function(argv) {
             tmp.covariates <- tmp.covariates[covariates$sex==(this_batch=="XY"),]
         }
         pop_mean <- (rowSums(tmp.bmat*tmp.dmat) + rowSums(tmp.dmat > 0)) / (rowSums(tmp.dmat) + 2*rowSums(tmp.dmat > 0))
+        pop_sd <- rowSds(tmp.bmat, na.rm=T)
         total_depth <- rowSums(tmp.dmat, na.rm=T)
-        pop_mean <- data.table(betas[,1:3], total_depth, mean_beta=pop_mean)
+
+        pop_mean <- data.table(betas[,1:3], total_depth, mean_beta=pop_mean, sd_beta=pop_sd)
         batch_samples <- colnames(tmp.bmat)
         if (chrom_type=="AUTOSOME"&&!is.null(this_batch)) {
            batch_samples <- rownames(covariates[covariates$Batch == this_batch,])
