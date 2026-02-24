@@ -55,6 +55,19 @@ if PLOT_OUTLIERS in ["TRUE","T","True","true",True]:
   print("plotting outliers . .. .")
   PLOT_OUTLIERS = "TRUE"
 
+if not "report_params" in config:
+  config["report_params"] = {}
+MAKE_REPORTS = config["report_params"]["MAKE_REPORTS"] if "MAKE_REPORTS" in config["report_params"] else "FALSE"
+if MAKE_REPORTS in ["TRUE","T","True","true",True]:
+  print("making outlier report htmls . . .")
+  MAKE_REPORTS = "TRUE"
+MIN_PRIO_SCORE = config["report_params"]["MIN_PRIO_SCORE"] if "MIN_PRIO_SCORE" in config["report_params"] else 1
+FLANK_LENGTH = config["report_params"]["FLANK_LENGTH"] if "FLANK_LENGTH" in config["report_params"] else 4000
+REPORT_MIN_SEG_SIZE = config["report_params"]["REPORT_MIN_SEG_SIZE"] if "REPORT_MIN_SEG_SIZE" in config["report_params"] else 30
+MAX_WIDTH = config["report_params"]["MAX_WIDTH"] if "MAX_WIDTH" in config["report_params"] else 20000
+TOP_OUTLIER_N = config["report_params"]["TOP_OUTLIER_N"] if "TOP_OUTLIER_N" in config["report_params"] else 20
+NUMBER_CONTROLS = config["report_params"]["NUMBER_CONTROLS"] if "NUMBER_CONTROLS" in config["report_params"] else 2
+
 reference_seqnames_table = config["reference_seqnames_table"] if "reference_seqnames_table" in config else "./GRCh38_ref_seqnames_table.txt"
 block_size = config["parallelization_block_size"] if "parallelization_block_size" in config else 750000
 autosomes = []
@@ -87,10 +100,9 @@ if SKIP_SEX_CHROMOSOME_ESTIMATION in ["TRUE","T","True","true",True]:
 
 rule all:
     input:
-      #expand(join(outdir, "sample_level_data/{sample}/{sample}.chrX_inactivation_skew.summary_dat.txt"), sample=samples),
-      #expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues),
       expand(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.haplotype_annotated.gene_track_annotated.bed"), tissue=unique_tissues),
-      join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv")
+      join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv"),
+      *(expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues) if MAKE_REPORTS=="TRUE" else [])
 
 def get_block_betas(wildcards):
   block_out = pd.read_table(checkpoints.create_cpg_reference.get(**wildcards).output[2])
@@ -486,7 +498,8 @@ rule annotate_haplotype_delta:
     hap1_bed = lambda w: join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_1.tech_" + technology_map[w.sample] + ".METAFORA_formatted.cpg_methylation.bed.gz"),
     hap2_bed = lambda w: join(outdir, "sample_level_data/{sample}/{sample}.Haplotype_2.tech_" + technology_map[w.sample] + ".METAFORA_formatted.cpg_methylation.bed.gz")
   output:
-    annotated_bed = temp(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.haplotype_annotated.bed"))
+    #annotated_bed = temp(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.haplotype_annotated.bed"))
+    annotated_bed = join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_regions.haplotype_annotated.bed")
   conda: 'envs/metafora.yaml'
   shell: """
     Rscript scripts/annotate_haplotype_methylation.R \
@@ -580,8 +593,15 @@ rule make_outlier_report:
     annos = config["annotation_track_tsv"],
     sample_table = config['sample_table'],
     tmp_bed_out = join(outdir, "sample_level_data/{sample}/tmp.outliers.bed"),
+    tmp_other_outs = join(outdir,"sample_level_data/{sample}/tmp.other_sample_outliers.bed"),
     tmp_tsv_out = join(outdir, "sample_level_data/{sample}/tmp.outliers.tsv"),
-    tmp_config_json = join(outdir, "sample_level_data/{sample}/tmp.track_config.json")
+    tmp_config_json = join(outdir, "sample_level_data/{sample}/tmp.track_config.json"),
+    min_prio_score = MIN_PRIO_SCORE,
+    flank_length = FLANK_LENGTH,
+    min_seg_size = REPORT_MIN_SEG_SIZE,
+    max_width = MAX_WIDTH,
+    top_outlier_n = TOP_OUTLIER_N,
+    number_controls = NUMBER_CONTROLS
   output:
     report = join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html")
   conda: 'envs/igv_report.yaml'
@@ -594,16 +614,23 @@ rule make_outlier_report:
             --sample_table {params.sample_table} \
             --annos {params.annos} \
             --output_bed {params.tmp_bed_out} \
+            --other_out_bed {params.tmp_other_outs} \
             --output_tsv {params.tmp_tsv_out} \
-            --output_json {params.tmp_config_json}
+            --output_json {params.tmp_config_json} \
+            --min_prio_score {params.min_prio_score} \
+            --flank_length {params.flank_length} \
+            --min_seg_size {params.min_seg_size} \
+            --max_width {params.max_width} \
+            --top_outlier_n {params.top_outlier_n} \
+            --number_controls {params.number_controls}
         
         create_report {params.tmp_tsv_out} \
             --genome hg38 \
             --flanking 2000 \
             --track-config {params.tmp_config_json} \
-            --info-columns seg_id coordinates num.mark pop_median delta zscore combined_depth haplotype_coverage_bias hap_delta Tissue \
+            --info-columns seg_id gene_name coordinates num.mark pop_median delta zscore combined_depth haplotype_coverage_bias hap_delta Tissue ImprintDisordDMR_names \
             --sequence 1 --begin 2 --end 3 \
             --output {output.report}
 
-        rm -f {params.tmp_bed_out} {params.tmp_tsv_out} {params.tmp_config_json}
+        rm -f {params.tmp_bed_out} {params.tmp_other_outs} {params.tmp_tsv_out} {params.tmp_config_json}
   """

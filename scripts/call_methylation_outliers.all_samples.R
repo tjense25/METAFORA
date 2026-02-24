@@ -260,8 +260,8 @@ outlier_pipeline <- function(pop_mean, betas, depths, cpgs.gr, beta.mat, depth.m
         outlier_z_matrix <- matrix(outlier_z_matrix,nrow=nrow(outlier.segs))
         colnames(outlier_z_matrix) <- colnames(beta.mat)
         rownames(outlier_z_matrix) <- outlier.segs$seg_id
-        if(!is.null(plotdir)) {
-            plot_outliers(this_sample, outlier.segs, meth.sample, outlier_z_matrix, plot_dir=paste0(plotdir,"/",this_sample,"/outlier_plots"))
+        if(!is.null(plotdir)&&nrow(outlier_z_matrix)<50) { #if sample has too many outliers do not plot
+                plot_outliers(this_sample, outlier.segs, meth.sample, outlier_z_matrix, plot_dir=paste0(plotdir,"/",this_sample,"/outlier_plots"))
         }
         return(list("segs"=outlier.segs,"zscores"=outlier_z_matrix))
 }

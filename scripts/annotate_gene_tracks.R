@@ -13,9 +13,13 @@ argv <- parse_args(parser)
 
 outliers <- fread(argv$outlier_bed)
 outliers.gr <- makeGRangesFromDataFrame(outliers, keep.extra.columns=T)
+outliers.gr$PRIORITIZATION_SCORE <- 0 #make prioritization score to calc weighted count of intersections w user-supplied annos
 
 if (argv$annotation_tsv != "SKIP") {
     annos <- fread(argv$annotation_tsv)
+    if(!("prioritization_weight" %in% colnames(annos))) {
+        annos$prioritization_weight <- 1
+    }
     add_annotation_row <- function(outliers.gr, anno_idx) {
         cat(paste0("Annotating outliers with user-supplied track ",annos$name[anno_idx]," . . . \n"))
         tmp.outliers <- as.data.frame(outliers.gr)
@@ -24,7 +28,9 @@ if (argv$annotation_tsv != "SKIP") {
         colnames(tmp.anno)[1:3] <- c("seqnames", "start","end")
         if (ncol(tmp.anno)==4) colnames(tmp.anno)[4] <- "Names"
         anno.gr <- makeGRangesFromDataFrame(tmp.anno,keep.extra.columns =T)
-        tmp.outliers[[annos$name[anno_idx]]] <- overlapsAny(outliers.gr,anno.gr)
+        anno_overlap_any <- overlapsAny(outliers.gr,anno.gr)
+        tmp.outliers[[annos$name[anno_idx]]] <- anno_overlap_any
+        tmp.outliers$PRIORITIZATION_SCORE <- tmp.outliers$PRIORITIZATION_SCORE + annos$prioritization_weight[anno_idx]*as.numeric(anno_overlap_any)
         tmp.overlap <- join_overlap_left(outliers.gr, anno.gr) %>% as.data.frame %>% group_by(seqnames,start,end,seg_id) %>% summarize(Names=paste(unique(Names),collapse=",")) %>% as.data.frame
         rownames(tmp.overlap) <- tmp.overlap$seg_id
         tmp.outliers[[paste0(annos$name[anno_idx],"_names")]] <- tmp.overlap[tmp.outliers$seg_id,]$Names

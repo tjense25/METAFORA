@@ -10,6 +10,15 @@ params:
   MIN_ABS_DELTA: 0.25
   SKIP_SEX_CHROMOSOME_ESTIMATION: FALSE
   PLOT_OUTLIERS: TRUE
+
+report_params:
+  MAKE_REPORTS: TRUE
+  MIN_PRIO_SCORE: 1
+  NUMBER_CONTROLS: 2
+  FLANK_LENGTH: 4000
+  REPORT_MIN_SEG_SIZE: 30
+  MAX_WIDTH: 20000
+  TOP_OUTLIER_N: 20
   
 reference_fasta: "/references/GRCH38/GRCh38_no_alt_analysis_set_GCA_000001405.15.fasta"
 reference_seqnames_table: "./GRCh38_ref_seqnames_table.txt"

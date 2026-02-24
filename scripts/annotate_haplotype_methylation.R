@@ -68,5 +68,4 @@ outliers$phasing_percent <- pmin(outliers$combined_depth / (outliers$hap1_depth 
 outliers$haplotype_coverage_bias <- log(outliers$hap1_depth/outliers$hap2_depth)
 outliers$hap_delta <- outliers$hap1_beta - outliers$hap2_beta
 
-outliers
 fwrite(outliers, argv$annotated_out, sep="\t")
