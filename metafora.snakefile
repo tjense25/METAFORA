@@ -584,7 +584,7 @@ rule make_outlier_report:
   threads: 1 
   resources:
     time=4,
-    mem=12
+    mem=46
   input:
     outlier_bed = join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.haplotype_annotated.gene_track_annotated.bed"),
     outlier_z_mat = join(outdir, "METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.sample_level_zscore.mat.gz"),
@@ -594,8 +594,8 @@ rule make_outlier_report:
     sample_table = config['sample_table'],
     tmp_bed_out = join(outdir, "sample_level_data/{sample}/tmp.outliers.bed"),
     tmp_other_outs = join(outdir,"sample_level_data/{sample}/tmp.other_sample_outliers.bed"),
-    tmp_tsv_out = join(outdir, "sample_level_data/{sample}/tmp.outliers.tsv"),
-    tmp_config_json = join(outdir, "sample_level_data/{sample}/tmp.track_config.json"),
+    tmp_tsv_out = join(outdir, "sample_level_data/{sample}/{sample}.prioritized_outliers.tsv"),
+    tmp_config_json = join(outdir, "sample_level_data/{sample}/igv_report.track_config.json"),
     min_prio_score = MIN_PRIO_SCORE,
     flank_length = FLANK_LENGTH,
     min_seg_size = REPORT_MIN_SEG_SIZE,
@@ -632,5 +632,6 @@ rule make_outlier_report:
             --sequence 1 --begin 2 --end 3 \
             --output {output.report}
 
-        rm -f {params.tmp_bed_out} {params.tmp_other_outs} {params.tmp_tsv_out} {params.tmp_config_json}
+        #rm -f {params.tmp_bed_out} {params.tmp_other_outs} {params.tmp_tsv_out} {params.tmp_config_json}
+        rm -f {params.tmp_bed_out} {params.tmp_other_outs} 
   """

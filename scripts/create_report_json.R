@@ -103,7 +103,7 @@ control_samples <- names(min_abs_sums[order(min_abs_sums)][1:NUMBER_CONTROLS])
 # make json track output
 json_out <- list( 
     list( #outlier table
-        name = "Sample Methylation Outliers",
+        name = paste0(this_sample, " Methylation Outliers"),
         url = normalizePath(argv$output_bed),
         color="red",
         height = 20
@@ -119,8 +119,12 @@ json_out <- list(
          type="alignment",
          colorBy="basemod2:m",
          groupBy="tag:HP",
+         alignmentRowHeight=12,
+         hideSmallIndels="true",
+         indelSizeThreshold="10",
          url=normalizePath(sample_table$Methylation_input[sample_table$Sample_name==this_sample]),
-         height=250
+         height=400
+
     ))
 for (this_control in control_samples) {
     json_out <- append(json_out, 
@@ -129,8 +133,11 @@ for (this_control in control_samples) {
              type="alignment",
              colorBy="basemod2:m",
              groupBy="tag:HP",
+             alignmentRowHeight=12,
+             hideSmallIndels="true",
+             indelSizeThreshold="10",
              url=normalizePath(sample_table$Methylation_input[sample_table$Sample_name==this_control]),
-             height=150
+             height=250
         )))
 }
 if (is.null(annos$color)) annos$color  <- rainbow(nrow(annos))
