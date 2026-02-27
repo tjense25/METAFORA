@@ -12,8 +12,21 @@ parser <- add_argument(parser, "--annotated_out", help="where to write annotated
 argv <- parse_args(parser)
 
 outliers <- fread(argv$outlier_bed)
+if(!"hap_delta" %in% colnames(outliers)){
+  outliers$haplotype_coverage_bias <- NA
+  outliers$hap_delta <- NA
+  outliers$combined_depth <- NA
+}
+
+outliers <- outliers %>% rowwise %>% mutate(PRIORITIZATION_SCORE=sum(
+            combined_depth>10 & abs(haplotype_coverage_bias)>.7,
+            abs(hap_delta) > .25,
+            abs(hap_delta) > .5,
+            abs(delta) > .4,
+            abs(delta) > .5,
+            na.rm=T))
+
 outliers.gr <- makeGRangesFromDataFrame(outliers, keep.extra.columns=T)
-outliers.gr$PRIORITIZATION_SCORE <- 0 #make prioritization score to calc weighted count of intersections w user-supplied annos
 
 if (argv$annotation_tsv != "SKIP") {
     annos <- fread(argv$annotation_tsv)

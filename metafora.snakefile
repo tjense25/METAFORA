@@ -57,7 +57,9 @@ if PLOT_OUTLIERS in ["TRUE","T","True","true",True]:
 
 if not "report_params" in config:
   config["report_params"] = {}
-MAKE_REPORTS = config["report_params"]["MAKE_REPORTS"] if "MAKE_REPORTS" in config["report_params"] else "FALSE"
+  config["report_params"]["MAKE_REPORTS"] = "FALSE"
+else:
+  MAKE_REPORTS = config["report_params"]["MAKE_REPORTS"] if "MAKE_REPORTS" in config["report_params"] else "TRUE"
 if MAKE_REPORTS in ["TRUE","T","True","true",True]:
   print("making outlier report htmls . . .")
   MAKE_REPORTS = "TRUE"
@@ -101,7 +103,7 @@ if SKIP_SEX_CHROMOSOME_ESTIMATION in ["TRUE","T","True","true",True]:
 rule all:
     input:
       expand(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.haplotype_annotated.gene_track_annotated.bed"), tissue=unique_tissues),
-      join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv"),
+      #join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv"),
       *(expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues) if MAKE_REPORTS=="TRUE" else [])
 
 def get_block_betas(wildcards):
@@ -596,6 +598,8 @@ rule make_outlier_report:
     tmp_other_outs = join(outdir,"sample_level_data/{sample}/tmp.other_sample_outliers.bed"),
     tmp_tsv_out = join(outdir, "sample_level_data/{sample}/{sample}.prioritized_outliers.tsv"),
     tmp_config_json = join(outdir, "sample_level_data/{sample}/igv_report.track_config.json"),
+    tmp_report = join(outdir, "sample_level_data/{sample}/tmp.igv_report.no_plots_added.html"),
+    plot_dir = join(outdir, "sample_level_data/{sample}/outlier_plots"),
     min_prio_score = MIN_PRIO_SCORE,
     flank_length = FLANK_LENGTH,
     min_seg_size = REPORT_MIN_SEG_SIZE,
@@ -630,8 +634,13 @@ rule make_outlier_report:
             --track-config {params.tmp_config_json} \
             --info-columns seg_id gene_name coordinates num.mark pop_median delta zscore combined_depth haplotype_coverage_bias hap_delta Tissue ImprintDisordDMR_names \
             --sequence 1 --begin 2 --end 3 \
-            --output {output.report}
+            --output {params.tmp_report}
 
-        #rm -f {params.tmp_bed_out} {params.tmp_other_outs} {params.tmp_tsv_out} {params.tmp_config_json}
-        rm -f {params.tmp_bed_out} {params.tmp_other_outs} 
+        python scripts/augment_igv_report.py \
+            {params.plot_dir} \
+            {params.tmp_tsv_out} \
+            {params.tmp_report} \
+            {output.report}
+
+        rm -f {params.tmp_bed_out} {params.tmp_other_outs} {params.tmp_report}
   """

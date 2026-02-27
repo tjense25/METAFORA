@@ -31,27 +31,9 @@ parser <- add_argument(parser, "--chrX_seqname", help="chrX seqname in supplied 
 parser <- add_argument(parser, "--chrY_seqname", help="chrY seqname in supplied reference genome")
 parser <- add_argument(parser, "--plot_dir", help="sample level data directory where outlier plots will be written. default: if not specified no outliers will be plotted",default=NULL)
 parser <- add_argument(parser, "--threads", help="number of threads to use for paralellized chrom block segmentation", default=1)
- 
+
 argv <- parse_args(parser)
 ncores=as.integer(argv$threads)
-#argv <- NULL
-#argv$chrom<-"chr22.1" 
-#argv$beta_mat<-"../METAFORA_output/Population_methylation.tissue_Blood/Population_methylation.tissue_Blood.chrom_chr22.1.betas.mat.gz"
-#argv$depth_mat<-"../METAFORA_output/Population_methylation.tissue_Blood/Population_methylation.tissue_Blood.chrom_chr22.1.coverage.mat.gz" 
-#argv$global_meth_pcs<-"../METAFORA_output/Global_Methylation_PCA_tissue_Blood/PCA_covariates.txt"
-#argv$outlier_bed<-"../METAFORA_output/METAFORA_methylation_outlier_regions.tissue_Blood.chrom_chr22.1.bed" 
-#argv$outlier_z_mat<-"../METAFORA_output/METAFORA_methylation_outlier_regions.tissue_Blood.sample_level_zscore.chrom_chr22.1.mat"
-#argv$joint_called_z_mat<-"../METAFORA_output/METAFORA_methylation_outlier_regions.tissue_Blood.merged_joint_called_zscore.chrom_chr22.1.mat"
-#argv$min_seg_size<-20
-#argv$min_abs_zscore<-3
-#argv$min_abs_delta<-0.3
-#argv$max_depth<-30 
-#argv$tissue<-"Blood" 
-#argv$chrX_seqname<-"chrX" 
-#argv$chrY_seqname<-"chrY" 
-#argv$threads<-8
-#argv$plot_dir<-"../METAFORA_output/sample_level_data"
-
 MIN_Z_THRESH <- function(D) {1.172304 + .0355*D} #optimized parameters accounting for depth from simulation experiment to acheive 90% power for absolute deltas of 0.25
 MAX_Z_THRESH <- function(D) {5.5 + 0.16654*D} #optimized  parameters accounting for depth for zscores observed for 0.9 deltas 
 
@@ -212,18 +194,23 @@ plot_outliers <- function(samp, cand.segs, meth.sample, z.mat, plot_dir) {
        pivot_longer(cols=c("mean_beta.smoothed", "sample_beta.smoothed"), names_to="source", values_to="beta") %>% 
        mutate(beta_lower=beta-ifelse(source=="mean_beta.smoothed",yes=sd.smoothed, 0), 
               beta_higher=beta+ifelse(source=="mean_beta.smoothed",yes=sd.smoothed,0))  %>% 
-       ggplot(aes(start, beta, ymin=beta_lower, ymax=beta_higher, color=source)) + geom_point() + geom_line(alpha=.8) + geom_ribbon(alpha=.1) + 
+       ggplot(aes(start, beta, ymin=beta_lower, ymax=beta_higher, color=source)) + 
+           annotate("rect",xmin=cand.segs[i,]$start,xmax=cand.segs[i,]$end, ymin=-Inf, ymax=Inf,fill="red",alpha=.1,color=NA) + 
+           geom_point() + geom_line(alpha=.8) + geom_ribbon(alpha=.1) + 
            theme_classic() +
            scale_color_manual(values=c("black","red"))  + 
            ylab("Methylation beta") +
-           ggtitle(samp,subtitle=seg_id) +
+           scale_x_continuous(labels=function(x) round(x/1e3), name="CpG Position (kb)") +
            theme(legend.position = "none")
 
      deviance_score.plot <- tmp.meth.sample %>% filter(seg_id == this_seg) %>%
-       ggplot(aes(start, deviance_score.smoothed)) + geom_point() + geom_line() + theme_classic() +
-       geom_hline(yintercept=0, linetype="dashed", color="grey70") + 
-       geom_segment(data=as.data.frame(cand.segs[i,]),mapping=aes(x=start,xend=end,y=seg.mean,yend=seg.mean),color="red", linewidth=2) +
-       ylab("deviance score") 
+       ggplot(aes(start, deviance_score.smoothed)) + 
+           annotate("rect",xmin=cand.segs[i,]$start,xmax=cand.segs[i,]$end, ymin=-Inf, ymax=Inf,fill="red",alpha=.1,color=NA) + 
+           geom_point() + geom_line() + theme_classic() +
+           geom_hline(yintercept=0, linetype="dashed", color="grey70") + 
+           geom_segment(data=as.data.frame(cand.segs[i,]),mapping=aes(x=start,xend=end,y=seg.mean,yend=seg.mean),color="red", linewidth=2) +
+           ylab("deviance score") +
+           scale_x_continuous(labels=function(x) round(x/1e3), name="CpG Position (kb)")
 
      z.df <- data.frame(zscore=as.numeric(z.mat[i,]),
                        sample_id=colnames(z.mat),
@@ -231,13 +218,13 @@ plot_outliers <- function(samp, cand.segs, meth.sample, z.mat, plot_dir) {
      hist <- ggplot(z.df, aes(zscore, fill=outlier)) + geom_histogram(bins=50) +  theme_classic() +
          geom_vline(xintercept=seg$zscore, color="red", linetype="dashed") +
          scale_fill_manual(values=c("grey40", "firebrick")) +
-         theme(legend.position="none")
+         theme(legend.position="none") +
+         xlab("Methylation z-score")
 
-     plot_grid(betas.plot,deviance_score.plot,hist,ncol=1)
-     ggsave(file=paste0(plot_dir, "/",seg_id,'.methylation_outlier_plots.pdf'), width = 3, height=7)
+     plot_grid(betas.plot,deviance_score.plot,hist,nrow=1)
+     ggsave(file=paste0(plot_dir, "/",seg_id,'.methylation_outlier_plots.pdf'), height=3, width=10)
     }
 }
-
 
 outlier_pipeline <- function(pop_mean, betas, depths, cpgs.gr, beta.mat, depth.mat, covariates, this_sample,this_chrom, this_block, chrom_type, min_seg_size, plotdir=NULL, MAX_DEPTH=100, MIN_ABS_ZSCORE=3, MIN_ABS_DELTA=0.25) {
         if(chrom_type=="SEX_CHROM") {

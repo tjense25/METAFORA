@@ -14,3 +14,4 @@ dependencies:
   - bioconductor-plyranges
   - bioconductor-genomicranges
   - igv-reports
+  - pdf2image

@@ -38,6 +38,10 @@ MAX_WIDTH <- as.numeric(argv$max_width)
 TOP_OUTLIER_N <- as.numeric(argv$top_outlier_n)
 NUMBER_CONTROLS <- as.numeric(argv$number_controls)
 
+INPUT_TYPE=sample_table$Technology[sample_table$Sample_name==this_sample]
+if (!INPUT_TYPE %in% c("ONT","PacBio")) { #if sample is not ONT or PacBio . . . bams are not listed in sample table so do not plot IGV alignment as tracks
+   NUMBER_CONTROLS<-0 
+}
 other_outs <- outliers[outliers$ID != this_sample,]
 outliers <- outliers[outliers$ID == this_sample,]
 
@@ -47,11 +51,6 @@ outliers <- filter(outliers,
                    `num.mark` >= MIN_SEG_SIZE,
                    width < MAX_WIDTH)
 outlier_z_mat <- outlier_z_mat[rownames(outlier_z_mat) %in% outliers$seg_id,]
-
-if(is.null(outliers$hap_delta)) {
-  outliers$haplotype_coverage_bias <- NA
-  outliers$hap_delta <- NA
-}
 
 outliers$coordinates <- paste0(outliers$seqnames,":",outliers$start,"-",outliers$end)
 out_bed <- unique(outliers[,c("seqnames","start","end","seg_id","zscore")])
@@ -72,33 +71,36 @@ fwrite(outliers,file=argv$output_tsv, sep="\t")
 fwrite(out_bed, file=argv$output_bed, sep="\t", col.names=F)
 fwrite(other_out_bed, file=argv$other_out_bed, sep="\t", col.names=F)
 
-# Select 2 control samples to compare what "normal" methylation looks like
+# Select control samples for comaprison to see  what "normal" methylation looks like
 ## choose samples from same batch / technology 
-matched.outlier_z_mat <- outlier_z_mat
-if ("Batch" %in% colnames(covariates)) {
-    this_batch <- covariates[covariates$Sample_name == this_sample,]$Batch
-    matched.outlier_z_mat <- matched.outlier_z_mat[,colnames(matched.outlier_z_mat) %in% covariates$Sample_name[covariates$Batch==this_batch]]
-}
-if ("sex" %in% colnames(covariates)) {
-    this_sex <- covariates[covariates$Sample_name == this_sample,]$sex
-    matched.outlier_z_mat <- matched.outlier_z_mat[,colnames(matched.outlier_z_mat) %in% covariates$Sample_name[covariates$sex==this_sex]]
-}
+control_samples <- NULL
+if (NUMBER_CONTROLS>0) {
+    matched.outlier_z_mat <- outlier_z_mat
+    if ("Batch" %in% colnames(covariates)) {
+        this_batch <- covariates[covariates$Sample_name == this_sample,]$Batch
+        matched.outlier_z_mat <- matched.outlier_z_mat[,colnames(matched.outlier_z_mat) %in% covariates$Sample_name[covariates$Batch==this_batch]]
+    }
+    if ("sex" %in% colnames(covariates)) {
+        this_sex <- covariates[covariates$Sample_name == this_sample,]$sex
+        matched.outlier_z_mat <- matched.outlier_z_mat[,colnames(matched.outlier_z_mat) %in% covariates$Sample_name[covariates$sex==this_sex]]
+    }
 
-# if not enough Batch/Sex matched samples to pool from, pool from all samples instead 
-if (is.null(ncol(matched.outlier_z_mat)) || ncol(matched.outlier_z_mat) <= 3) {
-   matched.outlier_z_mat <- outlier_z_mat 
-}
+    # if not enough Batch/Sex matched samples to pool from, pool from all samples instead 
+    if (is.null(ncol(matched.outlier_z_mat)) || ncol(matched.outlier_z_mat) <= 3) {
+       matched.outlier_z_mat <- outlier_z_mat 
+    }
 
-#choose samples that are not themselves outliers over defined regions
-abs_maxes <- apply(abs(matched.outlier_z_mat), 2, max)
-if (sum(abs_maxes < 2) >= NUMBER_CONTROLS) {
-    matched.outlier_z_mat <- matched.outlier_z_mat[,abs_maxes < 2]
-}
+    #choose samples that are not themselves outliers over defined regions
+    abs_maxes <- apply(abs(matched.outlier_z_mat), 2, max)
+    if (sum(abs_maxes < 2) >= NUMBER_CONTROLS) {
+        matched.outlier_z_mat <- matched.outlier_z_mat[,abs_maxes < 2]
+    }
 
-# if this condition isnt satisfied optimize based on minimum abs sum of all zscores
-# trying to find the most "normal" samples over these regions, the ones closest to the median expected methylation
-min_abs_sums <- colSums(abs(matched.outlier_z_mat))
-control_samples <- names(min_abs_sums[order(min_abs_sums)][1:NUMBER_CONTROLS])
+    # if this condition isnt satisfied optimize based on minimum abs sum of all zscores
+    # trying to find the most "normal" samples over these regions, the ones closest to the median expected methylation
+    min_abs_sums <- colSums(abs(matched.outlier_z_mat))
+    control_samples <- names(min_abs_sums[order(min_abs_sums)][1:NUMBER_CONTROLS])
+}
 
 # make json track output
 json_out <- list( 
@@ -113,19 +115,21 @@ json_out <- list(
          url = normalizePath(argv$other_out_bed),
          color="purple",
          height=40
-    ),
-    list( #outlier sample bam
-         name=paste0("Outlier Sample (", this_sample,")"),
-         type="alignment",
-         colorBy="basemod2:m",
-         groupBy="tag:HP",
-         alignmentRowHeight=12,
-         hideSmallIndels="true",
-         indelSizeThreshold="10",
-         url=normalizePath(sample_table$Methylation_input[sample_table$Sample_name==this_sample]),
-         height=400
-
     ))
+if (INPUT_TYPE %in% c("ONT", "PacBio")) {
+    json_out <- append(json_out, list( 
+        list( #outlier sample bam
+             name=paste0("Outlier Sample (", this_sample,")"),
+             type="alignment",
+             colorBy="basemod2:m",
+             groupBy="tag:HP",
+             alignmentRowHeight=12,
+             hideSmallIndels="true",
+             indelSizeThreshold="10",
+             url=normalizePath(sample_table$Methylation_input[sample_table$Sample_name==this_sample]),
+             height=400
+    )))
+}
 for (this_control in control_samples) {
     json_out <- append(json_out, 
         list(list( #control sample
