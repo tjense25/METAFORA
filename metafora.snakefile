@@ -103,7 +103,7 @@ if SKIP_SEX_CHROMOSOME_ESTIMATION in ["TRUE","T","True","true",True]:
 rule all:
     input:
       expand(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.haplotype_annotated.gene_track_annotated.bed"), tissue=unique_tissues),
-      #join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv"),
+      join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv"),
       *(expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues) if MAKE_REPORTS=="TRUE" else [])
 
 def get_block_betas(wildcards):

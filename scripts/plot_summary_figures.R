@@ -13,17 +13,7 @@ parser <- add_argument(parser, "--summary_out", help="where to write summary tsv
 parser <- add_argument(parser, "--covariates_files", help="optional comma-separated list of covariates to plot data stratified by Batch", default=NULL)
 parser <- add_argument(parser, "--min_abs_delta", help="MIN_ABS_DELTA threshold", type="numeric", default=.25) 
 parser <- add_argument(parser, "--min_abs_zscore", help="MIN_ABS_ZSCORE threhsold", type="numeric", default=3)
-#argv <- NULL
-#argv$outlier_files <- "../METAFORA_output/METAFORA.tissue_Blood.methylation_outliers.combined.tsv"
-#argv$plot_dir_out <- "../METAFORA_output/summary_figures"
-#argv$covariates_files <- "../METAFORA_output/Global_Methylation_PCA_tissue_Blood/PCA_covariates.txt"
-#argv$min_abs_delta <- 0.25
-#argv$min_abs_zscore <- 3
 argv <- parse_args(parser)
-
-
-
-
 
 outlier_files <- unlist(strsplit(argv$outlier_files, ","))
 covariates_files <- NULL
