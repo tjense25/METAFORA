@@ -42,6 +42,15 @@ def get_input_samples(wildcards):
       inputs.append(join(outdir,"sample_level_data/"+s+"/"+s+".tech_ONT.METAFORA_formatted.cpg_methylation.bed.gz"))
   return inputs
 
+def get_hp_input(wildcards):
+  inputs = []
+  for s in tissue_dict[wildcards.tissue]:
+    if technology_map[s] == "PacBio":
+      inputs.append(join(outdir,"sample_level_data/"+s+"/"+s+".Haplotype_{hp}.tech_PacBio.METAFORA_formatted.cpg_methylation.bed.gz"))
+    elif technology_map[s] == "ONT":
+      inputs.append(join(outdir,"sample_level_data/"+s+"/"+s+".Haplotype_{hp}.tech_ONT.METAFORA_formatted.cpg_methylation.bed.gz"))
+  return inputs
+
 #set up default params
 if not "params" in config:
   config["params"] = {}
@@ -100,11 +109,14 @@ if SKIP_SEX_CHROMOSOME_ESTIMATION in ["TRUE","T","True","true",True]:
   SKIP_SEX_CHROMOSOME_ESTIMATION = "TRUE"
   sex_chroms=[]
 
+block_out = pd.read_table('./METAFORA_output/Chromosome_block.paralleliztion.bed')
+auto_blocks = [ row.block for i,row in block_out.iterrows() if row.seqnames in autosomes]
 rule all:
     input:
-      expand(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.haplotype_annotated.gene_track_annotated.bed"), tissue=unique_tissues),
-      join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv"),
-      *(expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues) if MAKE_REPORTS=="TRUE" else [])
+      expand(join(outdir,"imprinting_regions.tissue_{tissue}/Candidate_imprinting_loci.tissue_{tissue}.chrom_{chr}.abs_haplotype_delta.mat"),tissue="PBMC",chr=auto_blocks)
+      #expand(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.haplotype_annotated.gene_track_annotated.bed"), tissue=unique_tissues),
+      #join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv"),
+      #*(expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues) if MAKE_REPORTS=="TRUE" else [])
 
 def get_block_betas(wildcards):
   block_out = pd.read_table(checkpoints.create_cpg_reference.get(**wildcards).output[2])
@@ -347,6 +359,78 @@ rule create_tissue_population_reference:
     tabix -p bed -S 1 {output.beta_mat}
     tabix -p bed -S 1 {output.depth_mat}
   """
+
+rule create_tissue_population_reference_hp:
+  threads: 8
+  resources:
+    time=24,
+    mem=128
+  input:
+    meth_beds = get_hp_input,
+    combined_segment_beta = join(outdir,"Population_methylation.tissue_{tissue}/Meth_segments.tissue_{tissue}.segment_betas.bed"),
+    block_bed = join(outdir, "Chromosome_block.paralleliztion.bed"),
+    cpg_bed = join(outdir, "cpg_reference.bed.gz")
+  params:
+    filelist=join(outdir,"tmp.{tissue}.file_list.chrom_{chr}.hp_{hp}.txt"),
+    script = "scripts/calculate_hp_mean_betas.R",
+    tmp_beta = join(outdir, "HP_{hp}.tissue_{tissue}/Population_methylation.hp_{hp}.tissue_{tissue}.chrom_{chr}.betas.mat"),
+    tmp_depth = join(outdir, "HP_{hp}.tissue_{tissue}/Population_methylation.hp_{hp}.tissue_{tissue}.chrom_{chr}.coverage.mat"),
+  output:
+    beta_mat = join(outdir, "HP_{hp}.tissue_{tissue}/Population_methylation.hp_{hp}.tissue_{tissue}.chrom_{chr}.betas.mat.gz"),
+    beta_tbi = join(outdir, "HP_{hp}.tissue_{tissue}/Population_methylation.hp_{hp}.tissue_{tissue}.chrom_{chr}.betas.mat.gz.tbi"),
+    depth_mat = join(outdir, "HP_{hp}.tissue_{tissue}/Population_methylation.hp_{hp}.tissue_{tissue}.chrom_{chr}.coverage.mat.gz"),
+    depth_tbi = join(outdir, "HP_{hp}.tissue_{tissue}/Population_methylation.hp_{hp}.tissue_{tissue}.chrom_{chr}.coverage.mat.gz.tbi"),
+    seg_beta = join(outdir,"HP_{hp}.tissue_{tissue}/Meth_segments.hp_{hp}.tissue_{tissue}.segment_betas.chrom_{chr}.bed"),
+    seg_depth = join(outdir,"HP_{hp}.tissue_{tissue}/Meth_segments.hp_{hp}.tissue_{tissue}.segment_coverage.chrom_{chr}.mat")
+  conda: "envs/metafora.yaml"
+  shell: """
+    ls {input.meth_beds} > {params.filelist}
+    Rscript {params.script} \
+        --filelist {params.filelist} \
+        --meth_segs {input.combined_segment_beta} \
+        --chrom {wildcards.chr} \
+        --block_bed {input.block_bed} \
+        --cpgs {input.cpg_bed} \
+        --beta_mat {params.tmp_beta} \
+        --depth_mat {params.tmp_depth} \
+        --segment_beta {output.seg_beta} \
+        --segment_depth {output.seg_depth} \
+        --threads {threads}
+    rm -f {params.filelist}
+
+    bgzip {params.tmp_beta}
+    bgzip {params.tmp_depth}
+
+    tabix -p bed -S 1 {output.beta_mat}
+    tabix -p bed -S 1 {output.depth_mat}
+  """
+
+rule segment_imprinting_regions:
+  threads: 1
+  resources:
+    time=12,
+    mem=128
+  input:
+    hp1_beta_mat = join(outdir, "HP_1.tissue_{tissue}/Population_methylation.hp_1.tissue_{tissue}.chrom_{chr}.betas.mat.gz"),
+    hp1_depth_mat = join(outdir, "HP_1.tissue_{tissue}/Population_methylation.hp_1.tissue_{tissue}.chrom_{chr}.coverage.mat.gz"),
+    hp2_beta_mat = join(outdir, "HP_2.tissue_{tissue}/Population_methylation.hp_2.tissue_{tissue}.chrom_{chr}.betas.mat.gz"),
+    hp2_depth_mat = join(outdir, "HP_2.tissue_{tissue}/Population_methylation.hp_2.tissue_{tissue}.chrom_{chr}.coverage.mat.gz")
+  params:
+    script = "scripts/segment_candidate_imprint_regions.R",
+  output:
+    join(outdir,"imprinting_regions.tissue_{tissue}/Candidate_imprinting_loci.tissue_{tissue}.chrom_{chr}.abs_haplotype_delta.mat")
+  conda: "envs/metafora.yaml"
+  shell: """
+      Rscript {params.script} \
+          --hp1_beta {input.hp1_beta_mat} \
+          --hp1_cov {input.hp1_depth_mat} \
+          --hp2_beta {input.hp2_beta_mat} \
+          --hp2_cov {input.hp2_depth_mat} \
+          --chrom {wildcards.chr} \
+          --imprint_out {output}
+  """
+
+
 
 rule compute_hidden_factors:
   threads: 16
