@@ -64,6 +64,7 @@ if PLOT_OUTLIERS in ["TRUE","T","True","true",True]:
   print("plotting outliers . .. .")
   PLOT_OUTLIERS = "TRUE"
 
+MAKE_REPORTS="FALSE"
 if not "report_params" in config:
   config["report_params"] = {}
   config["report_params"]["MAKE_REPORTS"] = "FALSE"
@@ -113,7 +114,7 @@ block_out = pd.read_table('./METAFORA_output/Chromosome_block.paralleliztion.bed
 auto_blocks = [ row.block for i,row in block_out.iterrows() if row.seqnames in autosomes]
 rule all:
     input:
-      expand(join(outdir,"imprinting_regions.tissue_{tissue}/Candidate_imprinting_loci.tissue_{tissue}.chrom_{chr}.abs_haplotype_delta.mat"),tissue="PBMC",chr=auto_blocks)
+      expand(join(outdir,"imprinting_regions.tissue_{tissue}/Candidate_imprinting_loci.tissue_{tissue}.chrom_{chr}.abs_haplotype_delta.mat"),tissue="LCL",chr=auto_blocks)
       #expand(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.haplotype_annotated.gene_track_annotated.bed"), tissue=unique_tissues),
       #join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv"),
       #*(expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues) if MAKE_REPORTS=="TRUE" else [])

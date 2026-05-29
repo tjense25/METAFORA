@@ -10,55 +10,15 @@ library(matrixStats)
 library(ggrepel)
 library(bedr)
 
-parser <- arg_parser("Script to compute global variation PCs in methylation profiles and auto-detect outliers")
-parser <- add_argument(parser, "--seg_beta", help = "comma-separated list of summarized segment betas from segmentation for each autosome")
-parser <- add_argument(parser, "--seg_depth", help = "comma-separated list of summarized segment depths from segmentation for each autosome")
-parser <- add_argument(parser, "--merged_outliers", help="where to write correlation, PC, and sex plots")
-
-args <- parse_args(parser)
-
-#calculate_hap_beta <- function(this_block, this_hp, this_tissue) {
-#    print(this_block)
-#    methout.gr <- methouts %>% dplyr::filter(block == this_block) %>% makeGRangesFromDataFrame(keep.extra.columns=T)
-#    betas <- fread(paste0(output_dir, "/HP_",this_hp,".tissue_",this_tissue,"/Population_methylation.hp_",this_hp,".tissue_",this_tissue,".chrom_",this_block,".betas.mat.gz"))
-#    betas.mat <- as.matrix(betas[,4:ncol(betas)])
-#    depths <- fread(paste0(output_dir, "/HP_",this_hp,".tissue_",this_tissue,"/Population_methylation.hp_",this_hp,".tissue_",this_tissue,".chrom_",this_block,".coverage.mat.gz"))
-#    depths.mat <- as.matrix(depths[,4:ncol(depths)])
-#
-#    betas.gr <- makeGRangesFromDataFrame(betas,keep.extra.columns=F)
-#
-#    ol <- findOverlaps(methout.gr, betas.gr)
-#    # create Segment x CpG identity matrix to indicate which cpgs belong to which segment
-#    CpG_Identity <- sparseMatrix(i = queryHits(ol), j = subjectHits(ol), dims=c(length(methout.gr),nrow(betas)), x=1)
-#      
-#    betas.mat[is.na(betas.mat)] <- 0
-#    depths.mat[is.na(depths.mat)] <- 0
-#
-#    # aggregate betas across each segment
-#    methout_beta <- as.matrix(((CpG_Identity %*% (betas.mat*depths.mat))+1) / (CpG_Identity %*% depths.mat+2))
-#    methout_depth <- as.matrix((CpG_Identity %*% depths.mat+2) / rowSums(CpG_Identity))
-#    methout_beta[methout_depth<5] <- NA #low depth segments set to NA
-#    data.frame(methout_beta)
-#}
-#
-#hap1_betas <- pbmclapply(unique(methouts$block), function(b) calculate_hap_beta(b,1,this_tissue), mc.cores=8) %>% bind_rows 
-#hap2_betas <- pbmclapply(unique(methouts$block), function(b) calculate_hap_beta(b,2,this_tissue), mc.cores=8) %>% bind_rows
-#hap1_betas %<>% as.matrix
-#hap2_betas %<>% as.matrix
-#hap_delta <- as.matrix(hap1_betas - hap2_betas)
-#median_hap_delta <- rowMedians(abs(hap_delta),na.rm=T)
-#rownames(hap_delta) <- methouts$MERGE_ID
-#write.table(hap_delta, file="../METAFORA_output/METAFORA_methylation_outlier_regions.tissue_PBMC.ALL_CHROM_COMBINED.merged_joint_called_zscore.haplotype_delta.mat", row.names=T, col.names=T, quote=F)
-
-
-
-cand_imprint_segs <- lapply(list.files("../METAFORA_output/imprinting_regions.tissue_PBMC",pattern="*.mat",full.names=T),fread) %>% bind_rows
+cand_imprint_segs <- lapply(list.files("../METAFORA_output/imprinting_regions.tissue_LCL",pattern="*.mat",full.names=T),fread) %>% bind_rows
 blocks<-NULL
-for (file in list.files("../METAFORA_output/imprinting_regions.tissue_PBMC",pattern="*.mat",full.names=T)) {
+for (file in list.files("../METAFORA_output/imprinting_regions.tissue_LCL",pattern="*.mat",full.names=T)) {
     block <- gsub(file,pattern=".*\\.chrom_(\\w+\\.\\d+)\\..*",replacement="\\1")
     tmp <- fread(file)
     blocks <- c(blocks,rep(block,nrow(tmp)))
 }
+nrow(cand_imprint_segs)
+cand_imprint_segs
 
 segs.meta <- cand_imprint_segs[,1:4]
 segs.meta$block <- blocks
@@ -71,10 +31,9 @@ hap_diff.mat <- hap_diff.mat[percent_missing<.2,]
 hap_diff_q1 <- apply(hap_diff.mat,1, function(x) quantile(x,.02,na.rm=T)) #get 1 percentile of haplotype difference (99% of samples have hap delta > this)
 sum(hap_diff_q1>.5,na.rm=T) #highly "constrained" imprinting loci
 
-ggplot(NULL, aes(hap_diff_q1, fill=hap_diff_q1>.25)) + geom_histogram(alpha=.8) + theme_minimal() + scale_fill_manual(values=c("grey","red")) + scale_y_log10() + 
+ggplot(NULL, aes(hap_diff_q1, fill=hap_diff_q1>.5)) + geom_histogram(alpha=.8) + theme_minimal() + scale_fill_manual(values=c("grey","red")) + scale_y_log10() + 
     geom_vline(xintercept=.5,color="red",linetype="dashed")
 ggsave("seg.median_hap_diff.distribution.hist.pdf",height=3)
-
 
 hap_diff.mat <- hap_diff.mat[hap_diff_q1>.5,]
 cand_imprint_delta <- hap_diff.mat %>% melt %>% set_colnames(c("meth_id","sample","hap_delta"))
@@ -87,7 +46,6 @@ outburden <- cand_imprint_delta %>% group_by(sample) %>% summarize(n=sum(hap_dif
 imprinting_outlier_samps <- outburden %>% filter(n>5) %>% pull(sample)
 cand_imprint_delta %<>% mutate(global_outlier=sample%in% imprinting_outlier_samps, outlier_sample=ifelse(global_outlier, yes=sample, no="not global outlier"))
 
-outburden
 ggplot(cand_imprint_delta, aes(hap_delta, meth_id, fill=outlier_sample,size=global_outlier,shape=global_outlier)) + geom_jitter(height=.3,alpha=.8,color="black") + theme_minimal() + scale_fill_manual(values=c("black","firebrick2","steelblue2","forestgreen","goldenrod")) + geom_hline(yintercept=.5+1:nrow(hap_diff.mat)) + theme(panel.border=element_rect(fill=NA)) +
     scale_size_manual(values=c(1,2)) + scale_shape_manual(values=c(21,23))
 ggsave("tmp.pdf",height=12)
@@ -98,7 +56,7 @@ set.seed(123)
 ggplot(outburden, aes(rank,n,fill=outlier_sample,label=ifelse(global_outlier,sample,""),shape=global_outlier)) + geom_point(size=2,alpha=.8,color="black") + geom_text_repel() + theme_classic() + 
     scale_fill_manual(values=c("black","firebrick2","steelblue2","forestgreen","goldenrod")) + scale_shape_manual(values=c(21,23)) +
     geom_hline(yintercept=5,color="red",linetype="dashed") +
-    ylab("number of imprinting | haplotype delta |  outliers per genome") +
+    ylab(" imprinting haplotype delta outliers") +
     xlab("rank-order samples")
 ggsave('imprinitng_missegregation_outliers.pdf')
 
@@ -107,10 +65,11 @@ plot_hap_region <- function(m,samp) {
     this_block <- this_seg$block
     this_region  <- this_seg$seg_id
     this_chrom <- gsub(this_block,pattern="(\\w+)\\.\\d+", replacement="\\1")
-    hp1 <- data.table(tabix(this_region, paste0('../METAFORA_output/HP_1.tissue_PBMC/Population_methylation.hp_1.tissue_PBMC.chrom_',this_block,'.betas.mat.gz')))
-    hp2 <- data.table(tabix(this_region, paste0('../METAFORA_output/HP_2.tissue_PBMC/Population_methylation.hp_2.tissue_PBMC.chrom_',this_block,'.betas.mat.gz')))
+    hp1 <- data.table(tabix(this_region, paste0('../METAFORA_output/HP_1.tissue_LCL/Population_methylation.hp_1.tissue_LCL.chrom_',this_block,'.betas.mat.gz')))
+    hp2 <- data.table(tabix(this_region, paste0('../METAFORA_output/HP_2.tissue_LCL/Population_methylation.hp_2.tissue_LCL.chrom_',this_block,'.betas.mat.gz')))
     hp1.mat <- hp1[,4:ncol(hp1)] %>% set_colnames(colnames(hap_diff.mat)) %>% as.matrix
     hp2.mat <- hp2[,4:ncol(hp2)] %>% set_colnames(colnames(hap_diff.mat)) %>% as.matrix
+    tabix(this_region,"../METAFORA_output/sample_level_data/HG01170/HG01170.Haplotype_1.tech_ONT.cpg_methylation.bed.gz")
     rownames(hp1.mat) <- hp1$V2
     rownames(hp2.mat) <- hp2$V2
     hp_meth <- rbind(
@@ -158,6 +117,9 @@ plot_hap_region <- function(m,samp) {
     ggsave(paste0("../constrained_imprinting_segregation_loss/",samp,".",this_region,".hap_delta_plots.pdf"),height=13, width=9)
 }
 
-
+hap_diff.mat[m,"HG01170"]
+m <- "chr11:2698596-2701176"
+samp <- "HG01170"
 cands.region <- cand_imprint_delta %>% filter(hap_diff_z < -5)
+cands.region %>% filter(sample==samp)
 lapply(1:nrow(cands.region), function(i) plot_hap_region(m=cands.region$meth_id[i],samp=cands.region$sample[i]))

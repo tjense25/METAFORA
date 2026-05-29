@@ -15,13 +15,6 @@ parser <- add_argument(parser, "--chrom", help = "chrom block to do segmentation
 parser <- add_argument(parser,"--imprint_out", help = "where to write candidate imprinting regions with sample-level haplotype deltas")
 
 argv <- parse_args(parser)
-#argv <- NULL
-#argv$hp1_beta <- "../METAFORA_output/HP_1.tissue_PBMC/Population_methylation.hp_1.tissue_PBMC.chrom_chr20.1.betas.mat.gz"
-#argv$hp1_cov <- "../METAFORA_output/HP_1.tissue_PBMC/Population_methylation.hp_1.tissue_PBMC.chrom_chr20.1.coverage.mat.gz"
-#argv$hp2_beta <- "../METAFORA_output/HP_2.tissue_PBMC/Population_methylation.hp_2.tissue_PBMC.chrom_chr20.1.betas.mat.gz"
-#argv$hp2_cov <- "../METAFORA_output/HP_2.tissue_PBMC/Population_methylation.hp_2.tissue_PBMC.chrom_chr20.1.coverage.mat.gz"
-#argv$chrom <- "chr20.1"
-#argv$imprint_out <- "../METAFORA_output/imprinting_regions.tissue_PBMC/Candidate_imprinting_loci.tissue_PBMC.chrom_chr20.1.abs_haplotype_delta.mat"
 
 main <- function(argv) {
     chrom_block <- argv$chrom
@@ -96,10 +89,10 @@ main <- function(argv) {
     hp1_imprint_beta <- matrix(((CpG_Identity%*%(hp1.beta.mat*hp1.depth.mat))+1)/ ((CpG_Identity%*%hp1.depth.mat)+2), nrow=length(cand_imprint_segs), ncol=ncol(hp1.beta.mat))
     hp1_imprint_depth <- matrix((CpG_Identity%*%hp1.depth.mat)/rowSums(CpG_Identity), nrow=length(cand_imprint_segs), ncol=ncol(hp1.depth.mat))
     hp2_imprint_beta <- matrix(((CpG_Identity%*%(hp2.beta.mat*hp2.depth.mat))+1)/ ((CpG_Identity%*%hp2.depth.mat)+2), nrow=length(cand_imprint_segs), ncol=ncol(hp2.beta.mat))
-    hp1_imprint_depth <- matrix((CpG_Identity%*%hp2.depth.mat)/rowSums(CpG_Identity), nrow=length(cand_imprint_segs), ncol=ncol(hp2.depth.mat))
+    hp2_imprint_depth <- matrix((CpG_Identity%*%hp2.depth.mat)/rowSums(CpG_Identity), nrow=length(cand_imprint_segs), ncol=ncol(hp2.depth.mat))
 
     hp1_imprint_beta[hp1_imprint_depth<5] <- NA
-    hp2_imprint_beta[hp1_imprint_depth<5] <- NA
+    hp2_imprint_beta[hp2_imprint_depth<5] <- NA
 
     imprint_hap_delta <- abs(hp1_imprint_beta-hp2_imprint_beta)
     colnames(imprint_hap_delta) <- colnames(hp1.beta.mat)
