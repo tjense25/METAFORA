@@ -45,9 +45,9 @@ def get_input_samples(wildcards):
 def get_hp_input(wildcards):
   inputs = []
   for s in tissue_dict[wildcards.tissue]:
-    if technology_map[s] == "PacBio":
+    if technology_map[s] == "PacBio" and phased_bam[s]:
       inputs.append(join(outdir,"sample_level_data/"+s+"/"+s+".Haplotype_{hp}.tech_PacBio.METAFORA_formatted.cpg_methylation.bed.gz"))
-    elif technology_map[s] == "ONT":
+    elif technology_map[s] == "ONT" and phased_bam[s]:
       inputs.append(join(outdir,"sample_level_data/"+s+"/"+s+".Haplotype_{hp}.tech_ONT.METAFORA_formatted.cpg_methylation.bed.gz"))
   return inputs
 
@@ -114,7 +114,7 @@ block_out = pd.read_table('./METAFORA_output/Chromosome_block.paralleliztion.bed
 auto_blocks = [ row.block for i,row in block_out.iterrows() if row.seqnames in autosomes]
 rule all:
     input:
-      expand(join(outdir,"imprinting_regions.tissue_{tissue}/Candidate_imprinting_loci.tissue_{tissue}.chrom_{chr}.abs_haplotype_delta.mat"),tissue="LCL",chr=auto_blocks)
+      expand(join(outdir,"imprinting_regions.tissue_{tissue}/Candidate_imprinting_loci.tissue_{tissue}.chrom_{chr}.abs_haplotype_delta.mat"),tissue="Blood",chr=auto_blocks)
       #expand(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.ALL_CHROM_COMBINED.haplotype_annotated.gene_track_annotated.bed"), tissue=unique_tissues),
       #join(outdir, "summary_figures/METAFORA.outlier_count_per_sample_tissue.tsv"),
       #*(expand(join(outdir, "sample_level_data/{sample}/{sample}.tissue_{tissue}.METAFORA.outlier_report.html"), zip, sample=samples, tissue=sample_tissues) if MAKE_REPORTS=="TRUE" else [])
