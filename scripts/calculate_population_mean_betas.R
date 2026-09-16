@@ -87,6 +87,7 @@ cat('calculting population mean beta . . .\n')
 pop_mean <- data.table(chrom=methylation.dat$chrom, start=methylation.dat$start, end=methylation.dat$end)
 pop_mean$total_depth <- rowSums(depth.mat, na.rm=T)
 pop_mean$mean_beta <- rowSums(beta.mat*depth.mat, na.rm=T)/(pop_mean$total_depth) 
+pop_mean$M <- log(pop_mean$mean_beta/(1-pop_mean$mean_beta)) #M transform mean betas
 
 #segment mean profile
 cat('segmenting population mean profile . . . \n')
@@ -106,7 +107,7 @@ breakup_large_segments <- function(segs, threshold=200, smaller_seg_size=100) {
     return(smaller_segments)
 }
 
-segment_blocks <- function(pop_mean, chrom_block, alpha = 0.01, minSeg = 10) {
+segment_blocks <- function(pop_mean, chrom_block, minSeg = 10, segMedT=1) {
   index <- c(1,which(diff(pop_mean$start) > 1000))
   last_start <- index[length(index)]
   last_end <- nrow(pop_mean)
@@ -118,7 +119,7 @@ segment_blocks <- function(pop_mean, chrom_block, alpha = 0.01, minSeg = 10) {
   
   segments <- Reduce(rbind,lapply(1:nrow(blocks), function(i) { 
     block_beta <- pop_mean[blocks$start[i]:blocks$end[i],]
-    segs <- as.data.frame(fastseg(block_beta$mean_beta, alpha=alpha, minSeg=minSeg, segMedianT=c(.65,.35)))
+    segs <- as.data.frame(fastseg(block_beta$M, minSeg=minSeg, segMedianT=c(segMedT,-segMedT)))
     segs <- breakup_large_segments(segs)
     segs$start <- block_beta$start[segs$start]
     segs$end <- block_beta$end[segs$end]
