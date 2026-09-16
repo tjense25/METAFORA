@@ -38,6 +38,5 @@ cpg_blocks <- cpgr %>% filter(large_diff==1) %>% group_by(seqnames) %>%
     group_by(seqnames,block) %>% summarize(start=min(start), end=max(end), num_cpgs=sum(num_cpgs)) %>%
     mutate(block=paste0(seqnames,".",block)) %>%
     select(seqnames, start, end, block, num_cpgs)
-cpg_blocks
 
 fwrite(cpg_blocks, argv$block_bed_out, col.names=T, row.names=T, sep="\t")

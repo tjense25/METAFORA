@@ -29,6 +29,7 @@ parser <- add_argument(parser, "--min_abs_delta", help="minimum effect size delt
 parser <- add_argument(parser, "--max_depth", help="maxmimum depth of read coverage to consider. (regions higher than this depth will be effectively downsampled)", type="integer", default=30)
 parser <- add_argument(parser, "--chrX_seqname", help="chrX seqname in supplied reference genome")
 parser <- add_argument(parser, "--chrY_seqname", help="chrY seqname in supplied reference genome")
+parser <- add_argument(parser, "--robust_scaling", help="use median and mad (robust measures of center) to compute zscores, could help when sample size low", flag = TRUE)
 parser <- add_argument(parser, "--plot_dir", help="sample level data directory where outlier plots will be written. default: if not specified no outliers will be plotted",default=NULL)
 parser <- add_argument(parser, "--threads", help="number of threads to use for paralellized chrom block segmentation", default=1)
 
@@ -113,7 +114,7 @@ call_joint_outliers <- function(outliers.gr, cpgs.gr, beta.mat, depth.mat, covar
   return(zscores)
 }
 
-call_outliers <-function(cand.segs, cpgs.gr, beta.mat, depth.mat, sample_id, MIN_ABS_ZSCORE = 3, covariates=NULL) {
+call_outliers <-function(cand.segs, cpgs.gr, beta.mat, depth.mat, sample_id, MIN_ABS_ZSCORE = 3, covariates=NULL, robust_scaling=FALSE) {
   cands.gr <- makeGRangesFromDataFrame(cand.segs, keep.extra.columns = T)
   
   ol <- findOverlaps(cands.gr, cpgs.gr)
@@ -150,6 +151,12 @@ call_outliers <-function(cand.segs, cpgs.gr, beta.mat, depth.mat, sample_id, MIN
   }
   M.corrected <- removeBatchEffect(M, batch=Batch, covariates=covariates)
   zscores <- t(scale(t(M.corrected)))
+  if(robust_scaling) {
+    medians <- apply(M.corrected, 1, median, na.rm=T)
+    mads <- apply(M.corrected, 1, mad, na.rm=T)
+    zscores <- sweep(M.corrected, 1, medians, "-")
+    zscores <- sweep(zscores, 1, mads, "/")
+  }
   cand.segs$zscore <- zscores[,sample_id]
 
   zscores <- zscores[abs(cand.segs$zscore) > MIN_ABS_ZSCORE,]
@@ -226,7 +233,7 @@ plot_outliers <- function(samp, cand.segs, meth.sample, z.mat, plot_dir) {
     }
 }
 
-outlier_pipeline <- function(pop_mean, betas, depths, cpgs.gr, beta.mat, depth.mat, covariates, this_sample,this_chrom, this_block, chrom_type, min_seg_size, plotdir=NULL, MAX_DEPTH=100, MIN_ABS_ZSCORE=3, MIN_ABS_DELTA=0.25) {
+outlier_pipeline <- function(pop_mean, betas, depths, cpgs.gr, beta.mat, depth.mat, covariates, this_sample,this_chrom, this_block, chrom_type, min_seg_size, plotdir=NULL, MAX_DEPTH=100, MIN_ABS_ZSCORE=3, MIN_ABS_DELTA=0.25, robust_scaling=FALSE) {
         if(chrom_type=="SEX_CHROM") {
             covariates <- covariates[,!colnames(covariates) %in% c("sex")]
         }
@@ -236,7 +243,7 @@ outlier_pipeline <- function(pop_mean, betas, depths, cpgs.gr, beta.mat, depth.m
         cand.segs <- cand.outliers[["cand.segs"]]
         if(nrow(cand.segs)==0||is.null(nrow(cand.segs))) { return(list("segs"=NULL,"zscores"=NULL)) }
         # calculate region aggregated M values and call zscores across samples
-        outliers <- call_outliers(cand.segs, cpgs.gr, beta.mat, depth.mat, sample_id=this_sample, MIN_ABS_ZSCORE=MIN_ABS_ZSCORE, covariates=covariates)
+        outliers <- call_outliers(cand.segs, cpgs.gr, beta.mat, depth.mat, sample_id=this_sample, MIN_ABS_ZSCORE=MIN_ABS_ZSCORE, covariates=covariates, robust_scaling)
         outlier.segs <- outliers[["outlier.segs"]]
         outlier_z_matrix <- outliers[["z.mat"]]
         if(nrow(outlier.segs)==0||is.null(nrow(outlier.segs))) { return(list("segs"=NULL,"zscores"=NULL)) }
@@ -272,6 +279,7 @@ main <- function(argv) {
     MIN_SEG_SIZE <- as.integer(argv$min_seg_size)
     MIN_ABS_DELTA <- as.numeric(argv$min_abs_delta)
     MAX_DEPTH <- as.numeric(argv$max_depth)
+    ROBUST_SCALING <- argv$robust_scaling
     covariates <- NULL
     if(!is.null(argv$global_meth_pcs)) {
         covariates <- read.table(argv$global_meth_pcs, row.names=1, header=T) 
@@ -320,6 +328,10 @@ main <- function(argv) {
         pop_sd <- rowSds(tmp.bmat, na.rm=T)
         total_depth <- rowSums(tmp.dmat, na.rm=T)
 
+        if(ROBUST_SCALING) {
+          pop_mean <- rowMedians(tmp.bmat, na.rm=T)
+          pop_sd <- rowMads(tmp.bmat, na.rm=T)
+        }
         pop_mean <- data.table(betas[,1:3], total_depth, mean_beta=pop_mean, sd_beta=pop_sd)
         batch_samples <- colnames(tmp.bmat)
         if (chrom_type=="AUTOSOME"&&!is.null(this_batch)) {
@@ -335,7 +347,7 @@ main <- function(argv) {
                    outlier_pipeline(pop_mean,betas,depths,cpgs.gr,tmp.bmat,tmp.dmat,tmp.covariates,
                                     this_sample=x,this_chrom=this_chrom,this_block=this_block,chrom_type=chrom_type,min_seg_size=MIN_SEG_SIZE,
                                     plotdir=plot_dir,
-                                    MAX_DEPTH=MAX_DEPTH,MIN_ABS_ZSCORE=MIN_ABS_ZSCORE,MIN_ABS_DELTA=MIN_ABS_DELTA) 
+                                    MAX_DEPTH=MAX_DEPTH,MIN_ABS_ZSCORE=MIN_ABS_ZSCORE,MIN_ABS_DELTA=MIN_ABS_DELTA, robust_scaling=ROBUST_SCALING) 
                 })
         outliers <- lapply(outlier_results, function(x) x$segs) %>% bind_rows
         zscores <- do.call(rbind,lapply(outlier_results, function(x) x$zscores))

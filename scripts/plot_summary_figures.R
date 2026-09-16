@@ -143,7 +143,7 @@ for (i in 1:number_tissue) {
 }
 
 ## Volcano Plot
-ggplot(combined_outliers, aes(delta, abs(zscore), shape=CHROM_TYPE, color=Tissue)) + geom_point() + 
+ggplot(combined_outliers, aes(delta, abs(zscore), shape=CHROM_TYPE, fill=Tissue)) + geom_point(shape=21,color="black",alpha=.5) + 
     theme_minimal() + xlim(-1,1) + scale_color_brewer(palette ="Set3") +
     facet_wrap(~Tissue) + theme(panel.border=element_rect(color="black", fill=NA)) + 
     geom_vline(xintercept=-MIN_ABS_DELTA, linetype="dashed", color="grey30") +

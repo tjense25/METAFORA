@@ -50,6 +50,7 @@ MIN_SEG_SIZE = config["params"]["MIN_SEG_SIZE"] if "MIN_SEG_SIZE" in config["par
 MIN_ABS_ZSCORE = config["params"]["MIN_ABS_ZSCORE"] if "MIN_ABS_ZSCORE" in config["params"] else 3
 MIN_ABS_DELTA = config["params"]["MIN_ABS_DELTA"] if "MIN_ABS_DELTA" in config["params"] else 0.25
 SKIP_SEX_CHROMOSOME_ESTIMATION = config["params"]["SKIP_SEX_CHROMOSOME_ESTIMATION"] if "SKIP_SEX_CHROMOSOME_ESTIMATION" in config["params"] else "FALSE"
+ROBUST_SCALING = config["params"]["ROBUST_SCALING"] if "ROBUST_SCALING" in config["params"] else "FALSE"
 PLOT_OUTLIERS = config["params"]["PLOT_OUTLIERS"] if "PLOT_OUTLIERS" in config["params"] else "FALSE"
 if PLOT_OUTLIERS in ["TRUE","T","True","true",True]:
   print("plotting outliers . .. .")
@@ -98,6 +99,8 @@ if len(sex_chroms) != 2 or chrX_seqname == "SKIP" or chrY_seqname == "SKIP":
 if SKIP_SEX_CHROMOSOME_ESTIMATION in ["TRUE","T","True","true",True]:
   print("Skipping sex chromosome copy number estimation and outlier calling")
   SKIP_SEX_CHROMOSOME_ESTIMATION = "TRUE"
+  chrX_seqname = "SKIP"
+  chrY_seqname = "SKIP"
   sex_chroms=[]
 
 rule all:
@@ -402,7 +405,8 @@ rule call_outliers_combined:
     MAX_DEPTH = MAX_DEPTH, 
     MIN_SEG_SIZE = MIN_SEG_SIZE, 
     MIN_ABS_ZSCORE = MIN_ABS_ZSCORE, 
-    MIN_ABS_DELTA = MIN_ABS_DELTA ,
+    MIN_ABS_DELTA = MIN_ABS_DELTA,
+    ROBUST_SCALING = "--robust_scaling" if ROBUST_SCALING=="TRUE" else "",
     plotdir_param = "--plot_dir " + join(outdir,"sample_level_data") if PLOT_OUTLIERS=="TRUE" else ""
   output:
     outlier_bed = temp(join(outdir,"METAFORA_methylation_outlier_regions.tissue_{tissue}.chrom_{chr}.bed")),
@@ -426,7 +430,7 @@ rule call_outliers_combined:
         --chrX_seqname {params.chrX_seqname} \
         --chrY_seqname {params.chrY_seqname} \
         --threads {threads} \
-        {params.plotdir_param}
+        {params.ROBUST_SCALING} {params.plotdir_param}
   """
 
 rule combine_all_sample_outliers:

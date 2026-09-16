@@ -21,7 +21,8 @@ ggplot(noise.df, aes(factor(M),power,fill=factor(noise))) + geom_col(position="d
 ggsave("./noise_M_power_plot.pdf")
 
 #look at power, false positives, z_score / segmeans
-fp.df <- eval.df %>% filter(M>5,N==15) %>% group_by(D,noise) %>% summarize(fps=mean(fps)/2)
+fp.df <- eval.df %>% filter(M>5,N==15) %>% group_by(D,noise,nu) %>% summarize(fp_count=sum(fps), fps=mean(fps)/2, tp=mean(tp))
+fp.df
 ggplot(fp.df, aes(factor(noise),fps,fill=factor(D))) + geom_col(position="dodge",width=.8, color="black") + theme_minimal() +
     scale_fill_manual(values=c("violet","violetred1","violetred2","violetred3","violetred4","red4")) +
     xlab("noise") + ylab("false positive rate per 1000CpGs")
@@ -40,7 +41,6 @@ ggsave(plot=gg,"./false_positive.statistics.pdf")
 fps <- eval.df %>% filter(fps > 0) %>% group_by(max_FP_size>10,max_FP_delta>.2) %>% summarize(n=dplyr::n())
 fps$prop <- fps$n/sum(fps$n)
 fps
-
 #look at z-score as a function of N
 eval.df %>% filter(tp) %>% filter(abs(delta) %in% c(.2,.4,.6,.8))  %>%
     ggplot(aes(factor(abs(delta)), abs(zscore), fill=factor(N))) + geom_violin(scale="width") + theme_minimal()  + scale_fill_brewer(palette=2)
